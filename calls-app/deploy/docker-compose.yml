@@ -1,0 +1,129 @@
+version: "3.9"
+
+services:
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - gateway
+
+  gateway:
+    build:
+      context: ../gateway
+    env_file:
+      - ./env/gateway.env
+    depends_on:
+      - auth-service
+      - user-service
+      - call-service
+      - presence-service
+      - history-service
+    restart: unless-stopped
+
+  auth-service:
+    build:
+      context: ../services/auth-service
+    env_file:
+      - ./env/auth-service.env
+    depends_on:
+      - postgres
+      - nats
+    restart: unless-stopped
+
+  user-service:
+    build:
+      context: ../services/user-service
+    env_file:
+      - ./env/user-service.env
+    depends_on:
+      - postgres
+      - nats
+    restart: unless-stopped
+
+  call-service:
+    build:
+      context: ../services/call-service
+    env_file:
+      - ./env/call-service.env
+    depends_on:
+      - postgres
+      - redis
+      - nats
+      - livekit
+    restart: unless-stopped
+
+  presence-service:
+    build:
+      context: ../services/presence-service
+    env_file:
+      - ./env/presence-service.env
+    depends_on:
+      - redis
+      - nats
+    restart: unless-stopped
+
+  notification-service:
+    build:
+      context: ../services/notification-service
+    env_file:
+      - ./env/notification-service.env
+    depends_on:
+      - nats
+    restart: unless-stopped
+
+  history-service:
+    build:
+      context: ../services/history-service
+    env_file:
+      - ./env/history-service.env
+    depends_on:
+      - postgres
+      - nats
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+      POSTGRES_DB: calls_app
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+
+  nats:
+    image: nats:2
+    restart: unless-stopped
+    command: ["-js"]
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+
+  livekit:
+    image: livekit/livekit-server:latest
+    restart: unless-stopped
+    command: --config /etc/livekit.yaml
+    network_mode: host
+    volumes:
+      - ./livekit/livekit.yaml:/etc/livekit.yaml:ro
+
+volumes:
+  caddy_data:
+  caddy_config:
+  postgres_data:
