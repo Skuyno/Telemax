@@ -10,8 +10,7 @@ coverage/
 TZ.md
 NOTES.md
 
-frontend/node_modules/
-frontend/dist/
+.venv/
 
 bin/
 docs/
