@@ -1,0 +1,17 @@
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+
+coverage/
+.tmp/
+*.log
+TZ.md
+NOTES.md
+
+frontend/node_modules/
+frontend/dist/
+
+bin/
+docs/
