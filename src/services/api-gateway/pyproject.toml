@@ -1,0 +1,19 @@
+[project]
+name = "api-gateway"
+version = "0.1.0"
+description = ""
+authors = [
+    {name = "Skuyno",email = "maks.anisimov211@gmail.com"}
+]
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi (>=0.139.0,<0.140.0)",
+    "pydantic-settings (>=2.14.2,<3.0.0)",
+    "pyjwt (>=2.13.0,<3.0.0)",
+    "httpx (>=0.28.1,<0.29.0)"
+]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
