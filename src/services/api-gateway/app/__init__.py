@@ -1,1 +1,1 @@
-"""Пакет приложения API Gateway."""
+"""API Gateway application package."""

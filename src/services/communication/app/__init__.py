@@ -1,1 +1,1 @@
-"""Пакет приложения Communication Service."""
+"""Communication Service application package."""

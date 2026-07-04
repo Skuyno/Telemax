@@ -1,8 +1,8 @@
-"""Pydantic-схемы для проверки состояния."""
+"""Pydantic schemas for health checks."""
 from pydantic import BaseModel
 
 
 class HealthResponse(BaseModel):
-    """Базовый ответ."""
+    """Basic response."""
 
     description: str

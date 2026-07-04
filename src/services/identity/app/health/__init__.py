@@ -1,1 +1,1 @@
-"""Пакет health."""
+"""Health check package."""

@@ -1,4 +1,4 @@
-"""Роуты проверки состояния приложения и б.д."""
+"""Health check routes for the application and database."""
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -9,14 +9,14 @@ from app.health.schemas import HealthResponse
 router = APIRouter()
 
 
-@router.get("/health/db", response_model=HealthResponse, tags=["Здоровье"])
+@router.get("/health/db", response_model=HealthResponse, tags=["Health"])
 async def health_db(db: AsyncSession = Depends(get_async_db)):
-    """Проверить состояние б.д.
+    """Check database health.
 
     Args:
-        db: Асинхронная сессия б.д.
+        db: Async database session.
 
     Returns:
-        HealthResponse: Результат проверки.
+        HealthResponse: Check result.
     """
     return await health_service.health_check(db)

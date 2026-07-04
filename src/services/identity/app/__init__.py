@@ -1,1 +1,1 @@
-"""Пакет приложения Identity Service."""
+"""Identity Service application package."""
