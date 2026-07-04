@@ -1,0 +1,1 @@
+"""Пакет приложения Communication Service."""
