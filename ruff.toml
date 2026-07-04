@@ -10,3 +10,7 @@ select = [
 
 [lint.pydocstyle]
 convention = "google"
+
+[lint.isort]
+known-first-party = ["app"]
+
