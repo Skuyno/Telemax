@@ -19,3 +19,16 @@ class RegisterResponse(BaseModel):
     id: UUID
 
 
+class LoginRequest(BaseModel):
+    """Login request."""
+
+    username: str = Field(max_length=256)
+    password: str = Field(max_length=256)
+
+
+class TokenResponse(BaseModel):
+    """Token response."""
+
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
