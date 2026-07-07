@@ -3,8 +3,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.users import repository as users_repository
 from app.users.models import User
-from app.users.schemas import RegisterRequest
-from app.users.security import hash_password
+from app.users.schemas import LoginRequest, RegisterRequest
+from app.users.security import hash_password, verify_password
 
 
 async def register_user(db: AsyncSession, data: RegisterRequest) -> User:
@@ -21,3 +21,16 @@ async def register_user(db: AsyncSession, data: RegisterRequest) -> User:
     return await users_repository.create_user(
         db, username=data.username, password_hash=hashed_pwd
     )
+
+
+async def authenticate_user(db: AsyncSession, data: LoginRequest) -> User | None:
+    """Authenticate a user by username and password.
+
+    Args:
+        db: Async database session.
+        data: Login request body.
+    """
+    user = await users_repository.get_user_by_username(db, data.username)
+    if user and verify_password(data.password, user.password_hash):
+        return user
+    return None
