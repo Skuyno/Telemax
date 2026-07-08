@@ -1,4 +1,6 @@
 """Data access layer for users."""
+from uuid import UUID
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -34,3 +36,17 @@ async def get_user_by_username(db: AsyncSession, username: str) -> User | None:
     """
     result = await db.execute(select(User).where(User.username == username))
     return result.scalar_one_or_none()
+
+
+async def get_user_by_id(db: AsyncSession, user_id: UUID) -> User | None:
+    """Get a user by primary key.
+
+    Args:
+        db: Async database session.
+        user_id: User's id.
+
+    Returns:
+        User | None: The user if found, otherwise None.
+    """
+    return await db.get(User, user_id)
+

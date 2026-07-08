@@ -1,8 +1,9 @@
 """Pydantic schemas for auth."""
 
+from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class RegisterRequest(BaseModel):
@@ -32,3 +33,22 @@ class TokenResponse(BaseModel):
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
+
+
+class TokenRequest(BaseModel):
+    """Token request."""
+
+    refresh_token: str
+
+
+class UserResponse(BaseModel):
+    """Current user's profile."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    username: str
+    email: str | None
+    display_name: str | None
+    created_at: datetime
+
