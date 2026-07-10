@@ -42,7 +42,7 @@ class TokenRequest(BaseModel):
 
 
 class UserResponse(BaseModel):
-    """Current user's profile."""
+    """Current user's profile response."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -51,4 +51,3 @@ class UserResponse(BaseModel):
     email: str | None
     display_name: str | None
     created_at: datetime
-
