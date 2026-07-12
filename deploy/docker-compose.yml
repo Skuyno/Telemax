@@ -20,11 +20,19 @@ services:
     build: ../src/services/identity
     container_name: identity
     env_file: .env
-    ports:
-      - "8000:8000"
     depends_on:
       db:
         condition: service_healthy
+  api-gateway:
+    build: ../src/services/api-gateway
+    container_name: api-gateway
+    env_file: .env
+    ports:
+      - "8000:8000"
+    # TODO: добавить identity собственный healthcheck и заменить
+    # зависимость на condition: service_healthy
+    depends_on:
+      - identity
 
 volumes:
   pgdata:
