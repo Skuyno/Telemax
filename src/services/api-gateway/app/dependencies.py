@@ -1,4 +1,5 @@
 """FastAPI dependencies."""
+
 from uuid import UUID
 
 import jwt

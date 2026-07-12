@@ -33,7 +33,7 @@ def resolve_target(path: str) -> str:
     raise HTTPException(status_code=404)
 
 
-@router.api_route("/{path:path}", methods=["GET", "POST"])
+@router.api_route("/{path:path}", include_in_schema=False)
 async def proxy(
     path: str,
     request: Request,
@@ -55,11 +55,13 @@ async def proxy(
     """
     target = resolve_target(path)
 
+    headers = {}
     if path not in PUBLIC_PATHS:
         user_id = get_authorization_token(credentials)
-        headers = {"X-User-Id": str(user_id)}
-    else:
-        headers = {}
+        headers["X-User-Id"] = str(user_id)
+    content_type = request.headers.get("content-type")
+    if content_type:
+        headers["content-type"] = content_type
 
     async with httpx.AsyncClient() as client:
         upstream = await client.request(
