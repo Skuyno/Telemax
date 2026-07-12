@@ -1,0 +1,16 @@
+target-version = "py312"
+
+[lint]
+select = [
+    "E", "W",  # pycodestyle: пробелы, отступы (тот самый identity_url :)
+    "F",       # pyflakes: неиспользуемые импорты, несуществующие имена
+    "I",
+    "D",
+]
+
+[lint.pydocstyle]
+convention = "google"
+
+[lint.isort]
+known-first-party = ["app"]
+

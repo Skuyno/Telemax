@@ -1,0 +1,38 @@
+services:
+  db:
+    image: postgres:17
+    container_name: db
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "5430:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+  identity:
+    build: ../src/services/identity
+    container_name: identity
+    env_file: .env
+    depends_on:
+      db:
+        condition: service_healthy
+  api-gateway:
+    build: ../src/services/api-gateway
+    container_name: api-gateway
+    env_file: .env
+    ports:
+      - "8000:8000"
+    # TODO: добавить identity собственный healthcheck и заменить
+    # зависимость на condition: service_healthy
+    depends_on:
+      - identity
+
+volumes:
+  pgdata:

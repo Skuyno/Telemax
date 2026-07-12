@@ -9,9 +9,9 @@ coverage/
 *.log
 TZ.md
 NOTES.md
+__pycache__/
 
-frontend/node_modules/
-frontend/dist/
+.venv/
 
 bin/
 docs/
