@@ -1,4 +1,5 @@
 """JWT creation for the identity service."""
+
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
