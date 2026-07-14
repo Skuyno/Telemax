@@ -31,6 +31,9 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=_find_env_file(),
         env_file_encoding="utf-8",
+        # In future will be deleted in fact of using concrete .env file for all
+        # microservices
+        extra="ignore"
     )
 
     @computed_field

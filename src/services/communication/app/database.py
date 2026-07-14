@@ -4,9 +4,10 @@ This module provides asynchronous database engine and session factory
 for SQLAlchemy ORM operations.
 """
 
-from config import settings
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
+
+from app.config import settings
 
 engine = create_async_engine(settings.database_url, echo=True)
 
