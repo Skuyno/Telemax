@@ -1,4 +1,5 @@
 """Shared fixtures for identity tests."""
+
 import asyncio
 
 import pytest
@@ -11,9 +12,7 @@ from app.database import Base
 from app.dependencies import get_async_db
 from app.main import app
 
-TEST_DATABASE_URL = (
-    "postgresql+asyncpg://postgres:mysecretpassword@localhost:5430/test_mydatabase"
-)
+TEST_DATABASE_URL = "postgresql+asyncpg://postgres:mysecretpassword@localhost:5430/test_telemax_identity"
 
 # NullPool: no connection is kept alive between uses, so nothing here ever
 # survives past the event loop it was created on.
@@ -24,6 +23,7 @@ test_session_maker = async_sessionmaker(test_engine, expire_on_commit=False)
 @pytest.fixture(scope="session")
 def create_models():
     """Create tables in the test database once per test run."""
+
     async def _create():
         async with test_engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
@@ -38,6 +38,7 @@ async def client(create_models):
     Depends on create_models so the tables exist; only tests that ask
     for this fixture touch the test database at all.
     """
+
     async def override_get_db():
         async with test_session_maker() as session:
             yield session

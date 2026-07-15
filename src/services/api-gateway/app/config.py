@@ -12,7 +12,7 @@ def _find_env_file() -> Path | None:
         Path | None: Path to the .env file if found, otherwise None.
     """
     for parent in Path(__file__).resolve().parents:
-        candidate = parent / "deploy" / ".env"
+        candidate = parent / ".env"
         if candidate.exists():
             return candidate
     return None
