@@ -33,7 +33,7 @@ def resolve_target(path: str) -> str:
     raise HTTPException(status_code=404)
 
 
-@router.api_route("/{path:path}", include_in_schema=False)
+@router.api_route("/{path:path}", methods=["GET", "POST"], include_in_schema=False)
 async def proxy(
     path: str,
     request: Request,
