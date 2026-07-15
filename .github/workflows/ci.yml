@@ -32,6 +32,13 @@ jobs:
           --health-interval=10s
           --health-timeout=5s
           --health-retries=5
+    env:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: mysecretpassword
+      POSTGRES_DB: test_telemax_identity
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: "5430"
+      JWT_SECRET: test-secret-for-aboba
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
