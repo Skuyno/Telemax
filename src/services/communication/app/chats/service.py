@@ -1,0 +1,33 @@
+"""Business logic for chats."""
+
+from uuid import UUID
+
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.chats import repository as chats_repository
+from app.chats.models import Chat
+from app.chats.schemas import CreateDirectChatRequest
+
+
+async def get_or_create_direct_chat(
+    db: AsyncSession, user_id: UUID, data: CreateDirectChatRequest
+) -> Chat:
+    """Get an existing direct chat with the peer or create a new one.
+
+    Args:
+        db: Async database session.
+        user_id: Id of the user making the request.
+        data: Request body with the peer's user id.
+
+    Returns:
+        Chat: The existing or newly created chat.
+    """
+    try:
+        return await chats_repository.create_direct_chat(
+            db, creator_id=user_id, peer_id=data.peer_user_id
+        )
+    except IntegrityError:
+        return await chats_repository.get_direct_chat(
+            db, user_a=user_id, user_b=data.peer_user_id
+        )
