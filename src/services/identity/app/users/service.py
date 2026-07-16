@@ -1,4 +1,4 @@
-"""Business logic for user registration."""
+"""Business logic for users."""
 
 from uuid import UUID
 

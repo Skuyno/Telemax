@@ -1,1 +1,1 @@
-"""Users package: model, schemas, security, and auth endpoints."""
+"""Users package: model, schemas, security, and endpoints."""

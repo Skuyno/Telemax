@@ -1,5 +1,4 @@
-"""Auth routes for user registration."""
-
+"""Routes for users."""
 import logging
 from uuid import UUID
 
@@ -84,7 +83,14 @@ async def login(
 async def refresh(
     data: TokenRequest,
 ) -> TokenResponse:
-    """Refresh the access token using a valid refresh token."""
+    """Refresh the access token using a valid refresh token.
+
+    Args:
+        data: TokenRequests schemas that containing a refresh_token.
+
+    Returns:
+        TokenResponse: The generated JWT access token and old refresh-token.
+    """
     try:
         decoded = jwt.decode(
             data.refresh_token, settings.jwt_secret, algorithms=[settings.jwt_algorithm]
