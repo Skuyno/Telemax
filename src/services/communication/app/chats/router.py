@@ -1,7 +1,8 @@
 """Routes for chats."""
+
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.chats import service as chats_service
@@ -14,6 +15,7 @@ router = APIRouter(prefix="/chats")
 @router.post("/direct", status_code=201, tags=["Chats"])
 async def create_direct_chat(
     data: CreateDirectChatRequest,
+    response: Response,
     user_id: UUID = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_async_db),
 ) -> CreateDirectChatResponse:
@@ -21,11 +23,14 @@ async def create_direct_chat(
 
     Args:
         data: Request body with the peer's user id.
+        response: Response object used to override the status code
         user_id: User id trusted from the X-User-Id header (set by API Gateway).
         db: Async database session.
 
     Returns:
         CreateDirectChatResponse: Id of the existing or newly created chat.
     """
-    chat = await chats_service.get_or_create_direct_chat(db, user_id, data)
+    chat, created = await chats_service.get_or_create_direct_chat(db, user_id, data)
+    if not created:
+        response.status_code = 200
     return CreateDirectChatResponse.model_validate(chat)

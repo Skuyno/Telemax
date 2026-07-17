@@ -66,7 +66,7 @@ class Message(Base):
 
 
 class DirectChat(Base):
-    """Direct-chat subtype data: one chat per user pair (user_lo < user_hi)."""
+    """Direct-chat subtype data: one chat per user pair (user_lo <= user_hi)."""
 
     __tablename__ = "direct_chats"
     __table_args__ = (

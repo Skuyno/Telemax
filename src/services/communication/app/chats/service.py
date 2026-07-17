@@ -12,7 +12,7 @@ from app.chats.schemas import CreateDirectChatRequest
 
 async def get_or_create_direct_chat(
     db: AsyncSession, user_id: UUID, data: CreateDirectChatRequest
-) -> Chat:
+) -> tuple[Chat, bool]:
     """Get an existing direct chat with the peer or create a new one.
 
     Args:
@@ -21,13 +21,20 @@ async def get_or_create_direct_chat(
         data: Request body with the peer's user id.
 
     Returns:
-        Chat: The existing or newly created chat.
+        tuple[Chat, bool]: The chat and True if it was created,
+        False if it already existed.
     """
     try:
-        return await chats_repository.create_direct_chat(
-            db, creator_id=user_id, peer_id=data.peer_user_id
+        return (
+            await chats_repository.create_direct_chat(
+                db, creator_id=user_id, peer_id=data.peer_user_id
+            ),
+            True,
         )
     except IntegrityError:
-        return await chats_repository.get_direct_chat(
-            db, user_a=user_id, user_b=data.peer_user_id
+        return (
+            await chats_repository.get_direct_chat(
+                db, user_a=user_id, user_b=data.peer_user_id
+            ),
+            False,
         )
