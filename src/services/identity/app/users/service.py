@@ -9,6 +9,8 @@ from app.users.models import User
 from app.users.schemas import LoginRequest, RegisterRequest
 from app.users.security import hash_password, verify_password
 
+_DUMMY_HASH = hash_password("dummy-password-for-timing")
+
 
 async def register_user(db: AsyncSession, data: RegisterRequest) -> User:
     """Register a new user with a hashed password.
@@ -34,7 +36,8 @@ async def authenticate_user(db: AsyncSession, data: LoginRequest) -> User | None
         data: Login request body.
     """
     user = await users_repository.get_user_by_username(db, data.username)
-    if user and verify_password(data.password, user.password_hash):
+    password_hash = user.password_hash if user else _DUMMY_HASH
+    if verify_password(data.password, password_hash) and user:
         return user
     return None
 
