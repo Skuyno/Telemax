@@ -53,6 +53,7 @@ async def proxy(
         HTTPException: 401 if the path is protected and the token is missing
             or invalid, 404 if the path doesn't belong to any service.
     """
+    path = path.rstrip("/")
     target = resolve_target(path)
 
     headers = {}
