@@ -75,18 +75,20 @@ async def login(
 
     return TokenResponse(
         access_token=create_access_token(user.id),
-        refresh_token=create_refresh_token(user.id),
+        refresh_token=create_refresh_token(user.id, user.token_version),
     )
 
 
 @router.post("/auth/refresh", tags=["Auth"], response_model=TokenResponse)
 async def refresh(
     data: TokenRequest,
+    db: AsyncSession = Depends(get_async_db)
 ) -> TokenResponse:
     """Refresh the access token using a valid refresh token.
 
     Args:
         data: TokenRequests schemas that containing a refresh_token.
+        db: Async database session.
 
     Returns:
         TokenResponse: The generated JWT access token and old refresh-token.
@@ -101,9 +103,14 @@ async def refresh(
     if decoded["type"] != "refresh":
         raise HTTPException(status_code=401, detail="Invalid refresh token")
 
-    user_id = decoded["sub"]
+    user = await users_service.get_user_profile(db, UUID(decoded["sub"]))
+    if user is None:
+        raise HTTPException(status_code=401, detail="Invalid refresh token")
+    if decoded["ver"] != user.token_version:
+        raise HTTPException(status_code=401, detail="Invalid refresh token")
+
     return TokenResponse(
-        access_token=create_access_token(user_id),
+        access_token=create_access_token(user.id),
         refresh_token=data.refresh_token,
     )
 

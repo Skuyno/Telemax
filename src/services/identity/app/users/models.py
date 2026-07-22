@@ -23,3 +23,4 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+    token_version: Mapped[int] = mapped_column(default=0, server_default="0")
