@@ -70,7 +70,7 @@ class DirectChat(Base):
 
     __tablename__ = "direct_chats"
     __table_args__ = (
-        (CheckConstraint("user_lo <= user_hi", name="ck_direct_chats_pair_ordered")),
+        CheckConstraint("user_lo <= user_hi", name="ck_direct_chats_pair_ordered"),
     )
 
     chat_id: Mapped[UUID] = mapped_column(ForeignKey("chats.id"), unique=True)

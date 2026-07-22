@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     communication_url: str = "http://communication:8000"
 
     model_config = SettingsConfigDict(
-        env_file= _find_env_file(),
+        env_file=_find_env_file(),
         env_file_encoding="utf-8",
     )
 
