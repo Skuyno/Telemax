@@ -27,12 +27,13 @@ def get_authorization_token(
     try:
         if credentials is None:
             raise jwt.InvalidTokenError
-        token = credentials.credentials
         decoded = jwt.decode(
-            token, settings.jwt_secret, algorithms=[settings.jwt_algorithm]
+            credentials.credentials,
+            settings.jwt_secret,
+            algorithms=[settings.jwt_algorithm],
         )
         if decoded["type"] != "access" or credentials.scheme != "Bearer":
             raise jwt.InvalidTokenError
         return UUID(decoded["sub"])
-    except jwt.InvalidTokenError:
+    except (jwt.InvalidTokenError, KeyError, ValueError):
         raise HTTPException(status_code=401)
