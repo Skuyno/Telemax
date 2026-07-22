@@ -32,9 +32,9 @@ async def get_or_create_direct_chat(
             True,
         )
     except IntegrityError:
-        return (
-            await chats_repository.get_direct_chat(
-                db, user_a=user_id, user_b=data.peer_user_id
-            ),
-            False,
+        chat = await chats_repository.get_direct_chat(
+            db, user_a=user_id, user_b=data.peer_user_id
         )
+        if chat is None:
+            raise
+        return chat, False
