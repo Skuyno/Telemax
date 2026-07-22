@@ -97,16 +97,17 @@ async def refresh(
         decoded = jwt.decode(
             data.refresh_token, settings.jwt_secret, algorithms=[settings.jwt_algorithm]
         )
-    except jwt.InvalidTokenError:
+        if decoded["type"] != "refresh":
+            raise jwt.InvalidTokenError
+        user_id = UUID(decoded["sub"])
+        token_version = decoded["ver"]
+    except (jwt.InvalidTokenError, KeyError, ValueError):
         raise HTTPException(status_code=401, detail="Invalid refresh token")
 
-    if decoded["type"] != "refresh":
-        raise HTTPException(status_code=401, detail="Invalid refresh token")
-
-    user = await users_service.get_user_profile(db, UUID(decoded["sub"]))
+    user = await users_service.get_user_profile(db, user_id)
     if user is None:
         raise HTTPException(status_code=401, detail="Invalid refresh token")
-    if decoded["ver"] != user.token_version:
+    if token_version != user.token_version:
         raise HTTPException(status_code=401, detail="Invalid refresh token")
 
     return TokenResponse(
