@@ -6,7 +6,11 @@ from fastapi import APIRouter, Depends, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.chats import service as chats_service
-from app.chats.schemas import CreateDirectChatRequest, CreateDirectChatResponse
+from app.chats.schemas import (
+    ChatResponse,
+    CreateDirectChatRequest,
+    CreateDirectChatResponse,
+)
 from app.dependencies import get_async_db, get_current_user_id
 
 router = APIRouter(prefix="/chats")
@@ -34,3 +38,29 @@ async def create_direct_chat(
     if not created:
         response.status_code = 200
     return CreateDirectChatResponse.model_validate(chat)
+
+
+@router.get("", tags=["Chats"])
+async def list_user_chats(
+    user_id: UUID = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_async_db),
+) -> list[ChatResponse]:
+    """List all chats the current user is a member of.
+
+    Args:
+        user_id: User id trusted from the X-User-Id header (set by API Gateway).
+        db: Async database session.
+
+    Returns:
+        list[ChatResponse]: The user's chats, each with a preview of the
+        most recent message (null if none yet).
+    """
+    chats = await chats_service.list_user_chats(db, user_id)
+    last_messages = await chats_service.get_last_messages(
+        db, [chat.id for chat in chats]
+    )
+
+    return [
+        ChatResponse(id=chat.id, last_message=last_messages.get(chat.id))
+        for chat in chats
+    ]

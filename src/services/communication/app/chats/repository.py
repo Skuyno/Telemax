@@ -1,11 +1,13 @@
 """Data access layer for chats."""
+
+from typing import Sequence
 from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.chats.models import Chat, ChatMember, DirectChat
+from app.chats.models import Chat, ChatMember, DirectChat, Message
 
 
 async def get_direct_chat(db: AsyncSession, user_a: UUID, user_b: UUID) -> Chat | None:
@@ -66,3 +68,48 @@ async def create_direct_chat(
         await db.rollback()
         raise
     return chat
+
+
+async def list_user_chats(
+    db: AsyncSession,
+    user_id: UUID,
+) -> Sequence[Chat]:
+    """Look up all chats the given user is a member of.
+
+    Args:
+        db: Async database session.
+        user_id: Id of the user to look up chats for.
+
+    Returns:
+        Sequence[Chat]: All chats the user is a member of.
+    """
+    result = await db.execute(
+        select(Chat)
+        .join(ChatMember, Chat.id == ChatMember.chat_id)
+        .where(ChatMember.user_id == user_id)
+    )
+
+    return result.scalars().all()
+
+
+async def get_last_messages(
+    db: AsyncSession, chat_ids: Sequence[UUID]
+) -> dict[UUID, Message]:
+    """Look up the most recent message for each of the given chats.
+
+    Args:
+        db: Async database session.
+        chat_ids: Chats to look up the last message for.
+
+    Returns:
+        dict[UUID, Message]: Latest message per chat id; chats with no
+        messages yet are simply absent from the dict.
+    """
+    result = await db.execute(
+        select(Message)
+        .where(Message.chat_id.in_(chat_ids))
+        .distinct(Message.chat_id)
+        .order_by(Message.chat_id, Message.created_at.desc())
+    )
+    return {message.chat_id: message for message in result.scalars().all()}
+
