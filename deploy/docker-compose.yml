@@ -33,6 +33,13 @@ services:
     # зависимость на condition: service_healthy
     depends_on:
       - identity
+  communication:
+    build: ../src/services/communication
+    container_name: communication
+    env_file: ../src/services/communication/.env
+    depends_on:
+      db:
+        condition: service_healthy
 
 volumes:
   pgdata:
