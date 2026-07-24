@@ -1,11 +1,12 @@
 """Tests for the register and login endpoints."""
 
 import jwt
+from httpx import AsyncClient
 
 from app.config import settings
 
 
-async def test_register_success(client):
+async def test_register_success(client: AsyncClient):
     """Register with a free username returns 201 and the new user's id."""
     resp = await client.post(
         "/auth/register",
@@ -18,7 +19,7 @@ async def test_register_success(client):
     assert "id" in resp.json()
 
 
-async def test_register_duplicate_username(client):
+async def test_register_duplicate_username(client: AsyncClient):
     """Registering an already-taken username returns 409, not 500."""
     await client.post(
         "/auth/register",
@@ -37,7 +38,7 @@ async def test_register_duplicate_username(client):
     assert resp.status_code == 409
 
 
-async def test_login_success(client):
+async def test_login_success(client: AsyncClient):
     """Login with correct credentials returns a token pair for the registered user."""
     resp = await client.post(
         "/auth/register",
@@ -66,7 +67,7 @@ async def test_login_success(client):
     assert decoded["sub"] == user_id
 
 
-async def test_login_wrong_password(client):
+async def test_login_wrong_password(client: AsyncClient):
     """Login with a wrong password for an existing user returns 401."""
     await client.post(
         "/auth/register",
@@ -85,7 +86,7 @@ async def test_login_wrong_password(client):
     assert resp.status_code == 401
 
 
-async def test_login_unknown_user(client):
+async def test_login_unknown_user(client: AsyncClient):
     """Login for a username that was never registered returns 401."""
     resp = await client.post(
         "/auth/login",
