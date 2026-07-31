@@ -23,16 +23,23 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    healthcheck:
+      test: [ "CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health/db')\"" ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
   api-gateway:
     build: ../src/services/api-gateway
     container_name: api-gateway
     env_file: ../src/services/api-gateway/.env
     ports:
       - "8000:8000"
-    # TODO: добавить identity собственный healthcheck и заменить
-    # зависимость на condition: service_healthy
     depends_on:
-      - identity
+      identity:
+        condition: service_healthy
+      communication:
+        condition: service_healthy
   communication:
     build: ../src/services/communication
     container_name: communication
@@ -40,6 +47,12 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    healthcheck:
+      test: [ "CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health/db')\"" ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
 
 volumes:
   pgdata:
