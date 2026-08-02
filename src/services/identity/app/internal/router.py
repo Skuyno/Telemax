@@ -1,0 +1,57 @@
+"""Routes for inter-service communication."""
+
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.dependencies import get_async_db
+from app.users import service as users_service
+from app.users.schemas import UserResponse
+
+router = APIRouter()
+
+
+@router.get("/internal/users/{user_id}", tags=["Internal"])
+async def get_user_by_id(
+    user_id: UUID, db: AsyncSession = Depends(get_async_db)
+) -> UserResponse:
+    """Look up a single user by id.
+
+    Intended for inter-service calls within the Docker network.
+
+    Args:
+        user_id: Id of the user to look up.
+        db: Async database session.
+
+    Returns:
+        UserResponse: The user's public profile.
+
+    Raises:
+        HTTPException: 404 if the user does not exist.
+    """
+    user = await users_service.get_user_profile(db, user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="user not found")
+    return UserResponse.model_validate(user)
+
+
+@router.get("/internal/users/", tags=["Internal"])
+async def get_users_bulk(
+    ids: list[UUID] = Query(...), db: AsyncSession = Depends(get_async_db)
+) -> list[UserResponse]:
+    """Return profiles for a batch of user ids.
+
+    Intended for data enrichment by other services (e.g. Communication
+    attaching display names to chat lists).
+
+    Args:
+        ids: User ids passed as repeated query parameters.
+        db: Async database session.
+
+    Returns:
+        list[UserResponse]: Profiles of found users; missing ids are
+        silently omitted.
+    """
+    users = await users_service.get_users_bulk(db, ids)
+    return [UserResponse.model_validate(u) for u in users]

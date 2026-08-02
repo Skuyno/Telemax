@@ -3,12 +3,15 @@
 from typing import Sequence
 from uuid import UUID
 
+import httpx
+from fastapi import HTTPException
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.chats import repository as chats_repository
 from app.chats.models import Chat, Message
 from app.chats.schemas import CreateDirectChatRequest
+from app.config import settings
 
 
 async def get_or_create_direct_chat(
@@ -25,6 +28,13 @@ async def get_or_create_direct_chat(
         tuple[Chat, bool]: The chat and True if it was created,
         False if it already existed.
     """
+    async with httpx.AsyncClient() as client:
+        response = await client.get(
+            f"{settings.identity_url}/internal/users/{data.peer_user_id}"
+        )
+    if response.status_code == 404:
+        raise HTTPException(status_code=404, detail="peer user not found")
+
     try:
         return (
             await chats_repository.create_direct_chat(

@@ -1,6 +1,7 @@
 """Shared fixture for communication tests."""
 
 import asyncio
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -18,6 +19,24 @@ TEST_DATABASE_URL = "postgresql+asyncpg://postgres:mysecretpassword@localhost:54
 # survives past the event loop it was created on.
 test_engine = create_async_engine(TEST_DATABASE_URL, poolclass=NullPool)
 test_session_maker = async_sessionmaker(test_engine, expire_on_commit=False)
+
+
+@pytest.fixture(autouse=True)
+def mock_identity_service():
+    """Mock chats GET request made via httpx.AsyncClient."""
+    with patch("app.chats.service.httpx.AsyncClient") as mock_client_class:
+        mock_client_instance = AsyncMock()
+
+        # By default AsyncMock supports async with, so we just set the return value
+        # for when httpx.AsyncClient() is called
+        mock_client_class.return_value = mock_client_instance
+
+        # Set up the mock response for client.get()
+        mock_response = AsyncMock()
+        mock_response.status_code = 200
+        mock_client_instance.get.return_value = mock_response
+
+        yield mock_client_class
 
 
 @pytest.fixture(scope="session")

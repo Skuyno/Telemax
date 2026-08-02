@@ -1,5 +1,6 @@
 """Business logic for users."""
 
+from typing import Sequence
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -56,3 +57,17 @@ async def get_user_profile(db: AsyncSession, data: UUID) -> User | None:
     if user:
         return user
     return None
+
+
+async def get_users_bulk(db: AsyncSession, user_ids: set[UUID]) -> Sequence[User]:
+    """Look up multiple users by their ids.
+
+    Args:
+        db: Async database session.
+        user_ids: Set of user ids to look up.
+
+    Returns:
+        Sequence[User]: Found users; ids with no matching row are
+        silently omitted from the result.
+    """
+    return await users_repository.get_users_bulk(db, user_ids)
