@@ -3,7 +3,7 @@
 from typing import Sequence
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import exists, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -113,3 +113,38 @@ async def get_last_messages(
     )
     return {message.chat_id: message for message in result.scalars().all()}
 
+
+async def list_chat_members(db: AsyncSession, chat_id: UUID) -> Sequence[ChatMember]:
+    """Fetch all members of a given chat.
+
+    Args:
+        db: Async database session.
+        chat_id: Id of the chat.
+
+    Returns:
+        Sequence[ChatMember]: A list of chat member records.
+    """
+    results = await db.execute(select(ChatMember).where(ChatMember.chat_id == chat_id))
+    return results.scalars().all()
+
+
+async def is_user_in_chat(db: AsyncSession, chat_id: UUID, user_id: UUID) -> bool:
+    """Check if a specific user is a member of a chat.
+
+    Args:
+        db: Async database session.
+        chat_id: Id of the chat.
+        user_id: Id of the user.
+
+    Returns:
+        bool: True if the user is a member, False otherwise.
+    """
+    result = await db.execute(
+        select(
+            exists().where(
+                ChatMember.chat_id == chat_id,
+                ChatMember.user_id == user_id,
+            )
+        )
+    )
+    return result.scalar()

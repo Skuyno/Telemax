@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.chats import service as chats_service
 from app.chats.schemas import (
+    ChatMembersResponse,
     ChatResponse,
     CreateDirectChatRequest,
     CreateDirectChatResponse,
@@ -64,3 +65,23 @@ async def list_user_chats(
         ChatResponse(id=chat.id, last_message=last_messages.get(chat.id))
         for chat in chats
     ]
+
+
+@router.get("/{chat_id}/members", tags=["Chats"])
+async def list_chat_members(
+    chat_id: UUID,
+    user_id: UUID = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_async_db),
+) -> list[ChatMembersResponse]:
+    """List all members of a specific chat.
+
+    Args:
+        chat_id: Id of the chat to look up.
+        user_id: User id trusted from the X-User-Id header (set by API Gateway).
+        db: Async database session.
+
+    Returns:
+        list[ChatMembersResponse]: A list of chat members with their roles and join dates.
+    """
+    members = await chats_service.list_chat_members(db, chat_id, user_id)
+    return [ChatMembersResponse.model_validate(member) for member in members]

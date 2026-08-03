@@ -9,7 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.chats import repository as chats_repository
-from app.chats.models import Chat, Message
+from app.chats.models import Chat, ChatMember, Message
 from app.chats.schemas import CreateDirectChatRequest
 from app.config import settings
 
@@ -77,3 +77,29 @@ async def get_last_messages(
         dict[UUID, Message]: Latest message per chat id.
     """
     return await chats_repository.get_last_messages(db, chat_ids)
+
+
+async def list_chat_members(
+    db: AsyncSession, chat_id: UUID, user_id: UUID
+) -> Sequence[ChatMember]:
+    """Get members of a chat, verifying the user's access.
+
+    Args:
+        db: Async database session.
+        chat_id: Id of the chat to look up.
+        user_id: Id of the user requesting the members.
+
+    Returns:
+        Sequence[ChatMember]: A list of chat members.
+
+    Raises:
+        HTTPException: 403 if the user is not a member of the chat,
+        or 404 if the chat does not exist.
+    """
+    if not await chats_repository.is_user_in_chat(db, chat_id, user_id):
+        raise HTTPException(status_code=403, detail="not a user chat")
+
+    members = await chats_repository.list_chat_members(db, chat_id)
+    if len(members) == 0:
+        raise HTTPException(status_code=404, detail="chat not found")
+    return members

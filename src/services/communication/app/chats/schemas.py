@@ -38,3 +38,11 @@ class ChatResponse(BaseModel):
     id: UUID
     last_message: MessagePreview | None
 
+
+class ChatMembersResponse(BaseModel):
+
+    model_config = ConfigDict(from_attributes=True)
+
+    user_id: UUID
+    role: str
+    joined_at: datetime
