@@ -3,7 +3,7 @@ import logging
 from uuid import UUID
 
 import jwt
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -137,3 +137,24 @@ async def me(
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
     return UserResponse.model_validate(user)
+
+
+@router.get("/users", tags=["Internal"])
+async def get_users_bulk(
+    ids: list[UUID] = Query(...), db: AsyncSession = Depends(get_async_db)
+) -> list[UserResponse]:
+    """Return profiles for a batch of user ids.
+
+    Intended for data enrichment by other services (e.g. Communication
+    attaching display names to chat lists).
+
+    Args:
+        ids: User ids passed as repeated query parameters.
+        db: Async database session.
+
+    Returns:
+        list[UserResponse]: Profiles of found users; missing ids are
+        silently omitted.
+    """
+    users = await users_service.get_users_bulk(db, ids)
+    return [UserResponse.model_validate(u) for u in users]

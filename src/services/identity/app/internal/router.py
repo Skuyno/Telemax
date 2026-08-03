@@ -34,24 +34,3 @@ async def get_user_by_id(
     if user is None:
         raise HTTPException(status_code=404, detail="user not found")
     return UserResponse.model_validate(user)
-
-
-@router.get("/internal/users/", tags=["Internal"])
-async def get_users_bulk(
-    ids: list[UUID] = Query(...), db: AsyncSession = Depends(get_async_db)
-) -> list[UserResponse]:
-    """Return profiles for a batch of user ids.
-
-    Intended for data enrichment by other services (e.g. Communication
-    attaching display names to chat lists).
-
-    Args:
-        ids: User ids passed as repeated query parameters.
-        db: Async database session.
-
-    Returns:
-        list[UserResponse]: Profiles of found users; missing ids are
-        silently omitted.
-    """
-    users = await users_service.get_users_bulk(db, ids)
-    return [UserResponse.model_validate(u) for u in users]
