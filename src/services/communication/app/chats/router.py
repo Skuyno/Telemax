@@ -11,6 +11,8 @@ from app.chats.schemas import (
     ChatResponse,
     CreateDirectChatRequest,
     CreateDirectChatResponse,
+    MessageResponse,
+    SendMessageRequest,
 )
 from app.dependencies import get_async_db, get_current_user_id
 
@@ -85,3 +87,26 @@ async def list_chat_members(
     """
     members = await chats_service.list_chat_members(db, chat_id, user_id)
     return [ChatMembersResponse.model_validate(member) for member in members]
+
+
+@router.post("/{chat_id}/messages", status_code=201, tags=["Messages"])
+async def send_message(
+    chat_id: UUID,
+    data: SendMessageRequest,
+    user_id: UUID = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_async_db),
+) -> MessageResponse:
+    """Send a new message to a chat.
+
+    Args:
+        chat_id: Id of the target chat.
+        data: Message payload containing the text body and an idempotency key.
+        user_id: User id trusted for X-User-Id header.
+        db: Async database session.
+
+    Returns:
+        MessageResponse: The saved message, including its generated server id and
+        creation timestamp
+    """
+    msg = await chats_service.send_message(db, chat_id, user_id, data)
+    return MessageResponse.model_validate(msg)

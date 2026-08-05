@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.chats import repository as chats_repository
 from app.chats.models import Chat, ChatMember, Message
-from app.chats.schemas import CreateDirectChatRequest
+from app.chats.schemas import CreateDirectChatRequest, SendMessageRequest
 from app.config import settings
 
 
@@ -103,3 +103,29 @@ async def list_chat_members(
     if len(members) == 0:
         raise HTTPException(status_code=404, detail="chat not found")
     return members
+
+
+async def send_message(
+    db: AsyncSession, chat_id: UUID, user_id: UUID, data: SendMessageRequest
+) -> Message:
+    """Validate access and save a new message to the database.
+
+    Args:
+        db: Async database session.
+        chat_id: Id of the chat.
+        user_id: Id of the sender.
+        data: Message payload.
+
+    Returns:
+        Message: The created of existing message.
+
+    Raises:
+        HTTPException: 403 if the sender is not a member of the chat.
+    """
+    if not await chats_repository.is_user_in_chat(db, chat_id, user_id):
+        raise HTTPException(status_code=403, detail="not a user chat")
+
+    msg = await chats_repository.create_message(
+        db, chat_id, user_id, data.body, data.client_msg_id
+    )
+    return msg
