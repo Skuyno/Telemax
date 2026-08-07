@@ -129,3 +129,33 @@ async def send_message(
         db, chat_id, user_id, data.body, data.client_msg_id
     )
     return msg
+
+
+async def get_chat_messages(
+    db: AsyncSession,
+    chat_id: UUID,
+    user_id: UUID,
+    limit: int,
+    before_msg_id: UUID | None,
+) -> list[Message]:
+    """Get the message history of a chat, verifying user access.
+
+    Args:
+        db: Async database session.
+        chat_id: Id of the chat.
+        user_id: Id of the user requesting the history.
+        limit: Max number of messages to return.
+        before_msg_id: Optional cursor for pagination.
+
+    Returns:
+        list[Message]: Paginated list of messages from newest to oldest.
+
+    Raises:
+        HTTPException: 403 if the user is not a member of the chat.
+    """
+    if not await chats_repository.is_user_in_chat(db, chat_id, user_id):
+        raise HTTPException(status_code=403, detail="not a user chat")
+
+    msgs = await chats_repository.get_chat_messages(db, chat_id, limit, before_msg_id)
+
+    return msgs

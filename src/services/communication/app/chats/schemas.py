@@ -3,7 +3,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class CreateDirectChatRequest(BaseModel):
@@ -65,4 +65,3 @@ class MessageResponse(BaseModel):
     chat_id: UUID
     sender_id: UUID
     created_at: datetime
-

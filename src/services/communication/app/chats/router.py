@@ -2,7 +2,7 @@
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, Response, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.chats import service as chats_service
@@ -110,3 +110,30 @@ async def send_message(
     """
     msg = await chats_service.send_message(db, chat_id, user_id, data)
     return MessageResponse.model_validate(msg)
+
+
+@router.get("/{chat_id}/messages", tags=["Messages"])
+async def get_chat_messages(
+    chat_id: UUID,
+    limit: int = Query(50, ge=1, le=100),
+    before_msg_id: UUID | None = Query(default=None),
+    user_id: UUID = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_async_db),
+) -> list[MessageResponse]:
+    """Get paginated message history for a chat.
+
+    Args:
+        chat_id: Id of the target chat.
+        limit: Maximum number of messages to return (1-100).
+        before_msg_id: Optional message ID cursor to load older messages.
+        user_id: User id trusted from the X-User-Id header.
+        db: Async database session.
+
+    Returns:
+        list[MessageResponse]: A list of messages ordered from newest to oldest.
+    """
+    msgs = await chats_service.get_chat_messages(
+        db, chat_id, user_id, limit, before_msg_id
+    )
+
+    return [MessageResponse.model_validate(msg) for msg in msgs]

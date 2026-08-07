@@ -182,3 +182,32 @@ async def create_message(
             )
         )
         return result.scalar_one()
+
+
+async def get_chat_messages(
+    db: AsyncSession, chat_id: UUID, limit: int, before_msg_id: UUID | None
+) -> list[Message]:
+    """Fetch paginated messages history for a specific chat.
+
+    Args:
+        db: Async database session.
+        chat_id: Id of the chat to get messages of.
+        limit: Max number of messages to return.
+        before_msg_id: Optional cursor; if provided, returns messages
+            created strictly before this message ID.
+
+    Returns:
+        list[Messages]: A list of messages objects, ordered from newest to oldest.
+    """
+    stmt = (
+        select(Message)
+        .where(Message.chat_id == chat_id)
+        .order_by(Message.id.desc())
+        .limit(limit)
+    )
+
+    if before_msg_id:
+        stmt = stmt.where(Message.id < before_msg_id)
+
+    result = await db.execute(stmt)
+    return result.scalars().all()
