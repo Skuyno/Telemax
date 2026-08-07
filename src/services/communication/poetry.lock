@@ -485,6 +485,23 @@ files = [
 ]
 
 [[package]]
+name = "nats-py"
+version = "2.15.0"
+description = "NATS client for Python"
+optional = false
+python-versions = ">=3.7"
+groups = ["main"]
+files = [
+    {file = "nats_py-2.15.0-py3-none-any.whl", hash = "sha256:9f8d36aa52a9926a88b8f1d70cf1fdce0ad387941479b500ee9ab3e51073cefd"},
+    {file = "nats_py-2.15.0.tar.gz", hash = "sha256:6622c547d9a7d2313d9c147d46c386188f4ec2c7b5c9f9a0438a4d1b55f54a93"},
+]
+
+[package.extras]
+aiohttp = ["aiohttp"]
+fast-parse = ["fast-mail-parser"]
+nkeys = ["nkeys"]
+
+[[package]]
 name = "pydantic"
 version = "2.13.4"
 description = "Data validation using Python type hints"
@@ -855,4 +872,4 @@ standard = ["httptools (>=0.8.0)", "python-dotenv (>=0.13)", "pyyaml (>=5.1)", "
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.11"
-content-hash = "5e61cea1f987de74253f7a15348ca24f2ccaad85543d2e072f2ffe949462f21d"
+content-hash = "4f757ec7a5a2b6838534924d0d6d5c8c62f61162bd90de51e1f34b89f8bfdc15"
