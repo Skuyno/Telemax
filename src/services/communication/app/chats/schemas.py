@@ -64,4 +64,5 @@ class MessageResponse(BaseModel):
     id: UUID
     chat_id: UUID
     sender_id: UUID
+    body: str
     created_at: datetime
