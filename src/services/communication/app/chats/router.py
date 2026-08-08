@@ -2,7 +2,7 @@
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Response, Query
+from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.chats import service as chats_service
@@ -83,7 +83,8 @@ async def list_chat_members(
         db: Async database session.
 
     Returns:
-        list[ChatMembersResponse]: A list of chat members with their roles and join dates.
+        list[ChatMembersResponse]: A list of chat members
+            with their roles and join dates.
     """
     members = await chats_service.list_chat_members(db, chat_id, user_id)
     return [ChatMembersResponse.model_validate(member) for member in members]
