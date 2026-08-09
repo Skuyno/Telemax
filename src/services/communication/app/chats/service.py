@@ -12,6 +12,7 @@ from app.chats import repository as chats_repository
 from app.chats.models import Chat, ChatMember, Message
 from app.chats.schemas import CreateDirectChatRequest, SendMessageRequest
 from app.config import settings
+from app.events import nats_client
 
 
 async def get_or_create_direct_chat(
@@ -128,6 +129,18 @@ async def send_message(
     msg = await chats_repository.create_message(
         db, chat_id, user_id, data.body, data.client_msg_id
     )
+
+    await nats_client.publish(
+        "chat.message.created",
+        {
+            "id": str(msg.id),
+            "chat_id": str(msg.chat_id),
+            "sender_id": str(msg.sender_id),
+            "body": msg.body,
+            "created_at": msg.created_at.isoformat(),
+        },
+    )
+
     return msg
 
 

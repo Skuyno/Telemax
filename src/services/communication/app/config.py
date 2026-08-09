@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     postgres_host: str = "db"
     postgres_port: int = 5432
     identity_url: str = "http://identity:8000"
+    nats_port: int = 4222
 
     model_config = SettingsConfigDict(
         env_file=_find_env_file(),
