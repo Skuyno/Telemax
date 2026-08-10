@@ -39,6 +39,13 @@ def mock_identity_service():
         yield mock_client_class
 
 
+@pytest.fixture(autouse=True)
+def mock_nats_client():
+    """Mock NATS client publish method for all tests."""
+    with patch("app.events.nats_client.publish") as mock_client_class:
+        yield mock_client_class
+
+
 @pytest.fixture(scope="session")
 def create_models():
     """Create tables in the test database once per test run."""

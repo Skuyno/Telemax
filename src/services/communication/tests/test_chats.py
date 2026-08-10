@@ -2,10 +2,7 @@
 
 from uuid import UUID, uuid4
 
-from conftest import test_session_maker as session_maker
 from httpx import AsyncClient
-
-from app.chats.models import Message
 
 
 async def test_create_direct_chat_succes(client: AsyncClient):
@@ -147,12 +144,17 @@ async def test_list_chats_returns_latest_message(client: AsyncClient):
     )
     chat_id = UUID(create_resp.json()["id"])
 
-    async with session_maker() as session:
-        session.add(Message(chat_id=chat_id, sender_id=x_user_id, body="first message"))
-        session.add(
-            Message(chat_id=chat_id, sender_id=peer_user_id, body="latest message")
-        )
-        await session.commit()
+    await client.post(
+        f"/chats/{chat_id}/messages",
+        json={"body": "first message", "client_msg_id": str(uuid4())},
+        headers={"X-User-Id": str(x_user_id)},
+    )
+
+    await client.post(
+        f"/chats/{chat_id}/messages",
+        json={"body": "latest message", "client_msg_id": str(uuid4())},
+        headers={"X-User-Id": str(x_user_id)},
+    )
 
     resp = await client.get("/chats", headers={"X-User-Id": str(x_user_id)})
 
@@ -180,16 +182,17 @@ async def test_list_chats_last_message_not_mixed_between_chats(client: AsyncClie
     first_chat_id = UUID(first_chat_resp.json()["id"])
     second_chat_id = UUID(second_chat_resp.json()["id"])
 
-    async with session_maker() as session:
-        session.add(
-            Message(chat_id=first_chat_id, sender_id=x_user_id, body="from first chat")
-        )
-        session.add(
-            Message(
-                chat_id=second_chat_id, sender_id=x_user_id, body="from second chat"
-            )
-        )
-        await session.commit()
+    await client.post(
+        f"/chats/{first_chat_id}/messages",
+        json={"body": "from first chat", "client_msg_id": str(uuid4())},
+        headers={"X-User-Id": str(x_user_id)},
+    )
+
+    await client.post(
+        f"/chats/{second_chat_id}/messages",
+        json={"body": "from second chat", "client_msg_id": str(uuid4())},
+        headers={"X-User-Id": str(x_user_id)},
+    )
 
     resp = await client.get("/chats", headers={"X-User-Id": str(x_user_id)})
 
@@ -215,3 +218,102 @@ async def test_list_chats_excludes_other_users_chats(client: AsyncClient):
 
     assert resp.status_code == 200
     assert resp.json() == []
+
+
+async def test_get_chat_messages_success(client: AsyncClient):
+    """Chat members can fetch message history."""
+    peer_user_id = str(uuid4())
+    x_user_id = str(uuid4())
+
+    create_resp = await client.post(
+        "/chats/direct",
+        json={"peer_user_id": str(peer_user_id)},
+        headers={"X-User-Id": str(x_user_id)},
+    )
+    chat_id = create_resp.json()["id"]
+
+    first_msg_resp = await client.post(
+        f"/chats/{chat_id}/messages",
+        json={"body": "first message", "client_msg_id": str(uuid4())},
+        headers={"X-User-Id": str(x_user_id)},
+    )
+
+    second_msg_resp = await client.post(
+        f"/chats/{chat_id}/messages",
+        json={"body": "latest message", "client_msg_id": str(uuid4())},
+        headers={"X-User-Id": str(x_user_id)},
+    )
+    assert first_msg_resp.status_code == 201
+    assert second_msg_resp.status_code == 201
+
+    history_resp = await client.get(
+        f"/chats/{chat_id}/messages?limit=10", headers={"X-User-Id": x_user_id}
+    )
+
+    assert history_resp.status_code == 200
+    messages = history_resp.json()
+    assert len(messages) == 2
+    assert messages[0]["body"] == "latest message"
+
+
+async def test_get_chat_messages_pagination(client: AsyncClient):
+    """Cursor pagination using before_msg_id works correctly."""
+    peer_user_id = str(uuid4())
+    x_user_id = str(uuid4())
+
+    create_resp = await client.post(
+        "/chats/direct",
+        json={"peer_user_id": str(peer_user_id)},
+        headers={"X-User-Id": str(x_user_id)},
+    )
+    chat_id = create_resp.json()["id"]
+
+    await client.post(
+        f"/chats/{chat_id}/messages",
+        json={"body": "first message", "client_msg_id": str(uuid4())},
+        headers={"X-User-Id": str(x_user_id)},
+    )
+
+    await client.post(
+        f"/chats/{chat_id}/messages",
+        json={"body": "latest message", "client_msg_id": str(uuid4())},
+        headers={"X-User-Id": str(x_user_id)},
+    )
+
+    resp1 = await client.get(
+        f"/chats/{chat_id}/messages?limit=1",
+        headers={"X-User-Id": x_user_id},
+    )
+    assert resp1.status_code == 200
+    msgs1 = resp1.json()
+    assert len(msgs1) == 1
+    assert msgs1[0]["body"] == "latest message"
+
+    resp2 = await client.get(
+        f"/chats/{chat_id}/messages?limit=1&before_msg_id={msgs1[0]['id']}",
+        headers={"X-User-Id": x_user_id},
+    )
+    assert resp2.status_code == 200
+    msgs2 = resp2.json()
+    assert len(msgs2) == 1
+    assert msgs2[0]["body"] == "first message"
+
+
+async def test_get_chat_messages_forbidden_for_outsider(client: AsyncClient):
+    """An outsider user cannot access chat messages and gets 403."""
+    peer_user_id = str(uuid4())
+    x_user_id = str(uuid4())
+    outsider_id = str(uuid4())
+
+    create_resp = await client.post(
+        "/chats/direct",
+        json={"peer_user_id": str(peer_user_id)},
+        headers={"X-User-Id": str(x_user_id)},
+    )
+    chat_id = create_resp.json()["id"]
+
+    resp = await client.get(
+        f"/chats/{chat_id}/messages?limit=1",
+        headers={"X-User-Id": outsider_id},
+    )
+    assert resp.status_code == 403
