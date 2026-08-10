@@ -1,3 +1,5 @@
+"""NATS event publisher module."""
+
 import json
 import logging
 
@@ -10,11 +12,22 @@ logger = logging.getLogger(__name__)
 
 
 class NatsClient:
+    """NATS wrapper for JetStream event publishing."""
+
     def __init__(self):
+        """Initialize NATS wrapper with uninitialized connections."""
         self.nc: NATS | None = None
         self.js: JetStreamContext | None = None
 
     async def connect(self, url: str):
+        """Connect to NATS broker and initialize JetStream stream.
+
+        Args:
+            url: NATS connection URL
+
+        Raises:
+            APIError: If JetStream stream creation is failed unexpectedly.
+        """
         logger.info("Connecting to NATS at %s...", url)
         self.nc = await nats.connect(url)
         self.js = self.nc.jetstream()
@@ -32,12 +45,22 @@ class NatsClient:
         logger.info("Succesfully connected to NATS JetStream")
 
     async def close(self):
+        """Gracefully drain and close NATS connection."""
         if self.nc:
             logger.info("Closing NATS connection...")
             await self.nc.drain()
             await self.nc.close()
 
     async def publish(self, subject: str, data: dict):
+        """Publish a event to a NATS JetStream subject.
+
+        Args:
+            subject: Target NATS subject.
+            data: Event payload dictionary.
+
+        Raises:
+            RuntimeError: If JetStream is not initialized.
+        """
         if not self.js:
             logger.error("Cannot publish: JetStream is not initialized")
             raise RuntimeError("NATS JetStream is not connected")

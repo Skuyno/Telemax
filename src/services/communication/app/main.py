@@ -11,6 +11,7 @@ from app.health.router import router as health_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    """Manage application lifespan resources like NATS connection."""
     await nats_client.connect(f"nats://nats:{settings.nats_port}")
     yield
     await nats_client.close()
