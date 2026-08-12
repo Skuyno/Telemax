@@ -101,8 +101,6 @@ async def list_chat_members(
         raise HTTPException(status_code=403, detail="not a user chat")
 
     members = await chats_repository.list_chat_members(db, chat_id)
-    if len(members) == 0:
-        raise HTTPException(status_code=404, detail="chat not found")
     return members
 
 
@@ -130,12 +128,16 @@ async def send_message(
         db, chat_id, user_id, data.body, data.client_msg_id
     )
 
+    members = await chats_repository.list_chat_members(db, chat_id)
+    recipient_ids = [str(m.user_id) for m in members]
+
     await nats_client.publish(
         "chat.message.created",
         {
             "id": str(msg.id),
             "chat_id": str(msg.chat_id),
             "sender_id": str(msg.sender_id),
+            "recipient_ids": recipient_ids,
             "body": msg.body,
             "created_at": msg.created_at.isoformat(),
         },
