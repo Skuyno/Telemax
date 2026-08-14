@@ -1,4 +1,5 @@
 """Health check routes for the application and database."""
+
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 

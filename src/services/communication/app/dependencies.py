@@ -1,4 +1,5 @@
 """FastAPI dependencies."""
+
 from collections.abc import AsyncGenerator
 from uuid import UUID
 

@@ -1,4 +1,5 @@
 """Routes for users."""
+
 import logging
 from uuid import UUID
 
@@ -81,8 +82,7 @@ async def login(
 
 @router.post("/auth/refresh", tags=["Auth"], response_model=TokenResponse)
 async def refresh(
-    data: TokenRequest,
-    db: AsyncSession = Depends(get_async_db)
+    data: TokenRequest, db: AsyncSession = Depends(get_async_db)
 ) -> TokenResponse:
     """Refresh the access token using a valid refresh token.
 

@@ -1,4 +1,5 @@
 """Health check business logic."""
+
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 

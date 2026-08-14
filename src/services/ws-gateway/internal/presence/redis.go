@@ -13,7 +13,7 @@ type Client struct {
 }
 
 func New(redisURL string) (*Client, error) {
-	rdb := redis.NewClient(&redis.Options {
+	rdb := redis.NewClient(&redis.Options{
 		Addr: redisURL,
 	})
 

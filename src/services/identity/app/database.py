@@ -3,6 +3,7 @@
 This module provides asynchronous database engine and session factory
 for SQLAlchemy ORM operations.
 """
+
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
@@ -17,4 +18,5 @@ async_session_maker = async_sessionmaker(engine, expire_on_commit=False)
 
 class Base(DeclarativeBase):
     """Base class for database models."""
+
     pass
