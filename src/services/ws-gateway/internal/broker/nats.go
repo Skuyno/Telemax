@@ -46,3 +46,8 @@ func (c *Client) SubscribeToMessages(subject string, handler func(data []byte)) 
 	return sub, nil
 }
 
+func (c *Client) Close() {
+	if c.nc != nil {
+		c.nc.Close()
+	}
+}
