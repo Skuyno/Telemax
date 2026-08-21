@@ -64,6 +64,17 @@ services:
       timeout: 5s
       retries: 3
       start_period: 5s
+  ws-gateway:
+    build: ../src/services/ws-gateway
+    container_name: ws-gateway
+    env_file: ../src/services/ws-gateway/.env
+    ports:
+      - "4333:4333"
+    depends_on:
+      redis:
+        condition: service_healthy
+      nats:
+        condition: service_started
 
 volumes:
   pgdata:
