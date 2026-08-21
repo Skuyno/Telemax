@@ -26,14 +26,15 @@ def resolve_target(path: str) -> str:
     Raises:
         HTTPException: 404 if the path doesn't belong to any service.
     """
-    if path.startswith("auth") or path == "me" or path.startswith("users"):
+    segment = path.split("/", 1)[0]
+    if segment in ("auth", "users") or path == "me":
         return settings.identity_url
-    if path.startswith("chats"):
+    if segment == "chats":
         return settings.communication_url
     raise HTTPException(status_code=404)
 
 
-@router.api_route("/{path:path}", include_in_schema=False)
+@router.api_route("/{path:path}", methods=["GET", "POST"], include_in_schema=False)
 async def proxy(
     path: str,
     request: Request,
@@ -53,6 +54,7 @@ async def proxy(
         HTTPException: 401 if the path is protected and the token is missing
             or invalid, 404 if the path doesn't belong to any service.
     """
+    path = path.rstrip("/")
     target = resolve_target(path)
 
     headers = {}

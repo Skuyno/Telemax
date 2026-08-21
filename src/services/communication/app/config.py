@@ -13,10 +13,11 @@ def _find_env_file() -> Path | None:
         Path | None: Path to the .env file if found, otherwise None.
     """
     for parent in Path(__file__).resolve().parents:
-        candidate = parent / "deploy" / ".env"
+        candidate = parent / ".env"
         if candidate.exists():
             return candidate
     return None
+
 
 class Settings(BaseSettings):
     """Application configuration settings loaded from environment variables."""
@@ -26,9 +27,11 @@ class Settings(BaseSettings):
     postgres_db: str
     postgres_host: str = "db"
     postgres_port: int = 5432
+    identity_url: str = "http://identity:8000"
+    nats_port: int = 4222
 
     model_config = SettingsConfigDict(
-        env_file= _find_env_file(),
+        env_file=_find_env_file(),
         env_file_encoding="utf-8",
     )
 
@@ -41,3 +44,6 @@ class Settings(BaseSettings):
             str: PostgreSQL connection URL.
         """
         return f"postgresql+asyncpg://{self.postgres_user}:{self.postgres_password}@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
+
+
+settings = Settings()

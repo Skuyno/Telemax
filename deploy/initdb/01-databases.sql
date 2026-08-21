@@ -1,0 +1,4 @@
+CREATE DATABASE telemax_identity;
+CREATE DATABASE telemax_communication;
+CREATE DATABASE test_telemax_identity;
+CREATE DATABASE test_telemax_communication;

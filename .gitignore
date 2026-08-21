@@ -15,3 +15,4 @@ __pycache__/
 
 bin/
 docs/
+docker-compose.override.yml

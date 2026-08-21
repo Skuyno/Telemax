@@ -1,5 +1,6 @@
-"""Business logic for user registration."""
+"""Business logic for users."""
 
+from typing import Sequence
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -8,6 +9,8 @@ from app.users import repository as users_repository
 from app.users.models import User
 from app.users.schemas import LoginRequest, RegisterRequest
 from app.users.security import hash_password, verify_password
+
+_DUMMY_HASH = hash_password("dummy-password-for-timing")
 
 
 async def register_user(db: AsyncSession, data: RegisterRequest) -> User:
@@ -34,7 +37,8 @@ async def authenticate_user(db: AsyncSession, data: LoginRequest) -> User | None
         data: Login request body.
     """
     user = await users_repository.get_user_by_username(db, data.username)
-    if user and verify_password(data.password, user.password_hash):
+    password_hash = user.password_hash if user else _DUMMY_HASH
+    if verify_password(data.password, password_hash) and user:
         return user
     return None
 
@@ -53,3 +57,17 @@ async def get_user_profile(db: AsyncSession, data: UUID) -> User | None:
     if user:
         return user
     return None
+
+
+async def get_users_bulk(db: AsyncSession, user_ids: set[UUID]) -> Sequence[User]:
+    """Look up multiple users by their ids.
+
+    Args:
+        db: Async database session.
+        user_ids: Set of user ids to look up.
+
+    Returns:
+        Sequence[User]: Found users; ids with no matching row are
+        silently omitted from the result.
+    """
+    return await users_repository.get_users_bulk(db, user_ids)

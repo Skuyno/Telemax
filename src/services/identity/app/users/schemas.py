@@ -1,4 +1,4 @@
-"""Pydantic schemas for auth."""
+"""Pydantic schemas for users."""
 
 from datetime import datetime
 from uuid import UUID
@@ -16,7 +16,7 @@ class RegisterRequest(BaseModel):
 class RegisterResponse(BaseModel):
     """Registration response."""
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
     id: UUID
 
 

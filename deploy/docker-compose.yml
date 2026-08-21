@@ -5,34 +5,76 @@ services:
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
-    ports:
-      - "5430:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - ./initdb:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}" ]
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER}" ]
       interval: 10s
       timeout: 5s
+      retries: 5
+    restart: unless-stopped
+  nats:
+    image: nats:alpine
+    container_name: nats
+    command: "-js"
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
       retries: 5
     restart: unless-stopped
   identity:
     build: ../src/services/identity
     container_name: identity
-    env_file: .env
+    env_file: ../src/services/identity/.env
     depends_on:
       db:
         condition: service_healthy
+    healthcheck:
+      test: [ "CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health/db')\"" ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
   api-gateway:
     build: ../src/services/api-gateway
     container_name: api-gateway
-    env_file: .env
+    env_file: ../src/services/api-gateway/.env
     ports:
       - "8000:8000"
-    # TODO: добавить identity собственный healthcheck и заменить
-    # зависимость на condition: service_healthy
     depends_on:
-      - identity
+      identity:
+        condition: service_healthy
+      communication:
+        condition: service_healthy
+  communication:
+    build: ../src/services/communication
+    container_name: communication
+    env_file: ../src/services/communication/.env
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health/db')\"" ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+  ws-gateway:
+    build: ../src/services/ws-gateway
+    container_name: ws-gateway
+    env_file: ../src/services/ws-gateway/.env
+    ports:
+      - "4333:4333"
+    depends_on:
+      redis:
+        condition: service_healthy
+      nats:
+        condition: service_started
 
 volumes:
   pgdata:

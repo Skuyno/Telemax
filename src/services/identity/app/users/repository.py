@@ -1,4 +1,6 @@
 """Data access layer for users."""
+
+from typing import Sequence
 from uuid import UUID
 
 from sqlalchemy import select
@@ -50,3 +52,17 @@ async def get_user_by_id(db: AsyncSession, user_id: UUID) -> User | None:
     """
     return await db.get(User, user_id)
 
+
+async def get_users_bulk(db: AsyncSession, user_ids: set[UUID]) -> Sequence[User]:
+    """Fetch all users whose id is in the given set.
+
+    Args:
+        db: Async database session.
+        user_ids: Set of user ids to look up.
+
+    Returns:
+        Sequence[User]: Matching users; ids not present in the table
+        are silently skipped.
+    """
+    result = await db.execute(select(User).where(User.id.in_(user_ids)))
+    return result.scalars().all()

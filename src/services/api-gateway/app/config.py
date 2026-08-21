@@ -12,7 +12,7 @@ def _find_env_file() -> Path | None:
         Path | None: Path to the .env file if found, otherwise None.
     """
     for parent in Path(__file__).resolve().parents:
-        candidate = parent / "deploy" / ".env"
+        candidate = parent / ".env"
         if candidate.exists():
             return candidate
     return None
@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     communication_url: str = "http://communication:8000"
 
     model_config = SettingsConfigDict(
-        env_file= _find_env_file(),
+        env_file=_find_env_file(),
         env_file_encoding="utf-8",
     )
 

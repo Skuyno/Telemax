@@ -1,10 +1,10 @@
-"""Auth routes for user registration."""
+"""Routes for users."""
 
 import logging
 from uuid import UUID
 
 import jwt
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -76,28 +76,42 @@ async def login(
 
     return TokenResponse(
         access_token=create_access_token(user.id),
-        refresh_token=create_refresh_token(user.id),
+        refresh_token=create_refresh_token(user.id, user.token_version),
     )
 
 
 @router.post("/auth/refresh", tags=["Auth"], response_model=TokenResponse)
 async def refresh(
-    data: TokenRequest,
+    data: TokenRequest, db: AsyncSession = Depends(get_async_db)
 ) -> TokenResponse:
-    """Refresh the access token using a valid refresh token."""
+    """Refresh the access token using a valid refresh token.
+
+    Args:
+        data: TokenRequests schemas that containing a refresh_token.
+        db: Async database session.
+
+    Returns:
+        TokenResponse: The generated JWT access token and old refresh-token.
+    """
     try:
         decoded = jwt.decode(
             data.refresh_token, settings.jwt_secret, algorithms=[settings.jwt_algorithm]
         )
-    except jwt.InvalidTokenError:
+        if decoded["type"] != "refresh":
+            raise jwt.InvalidTokenError
+        user_id = UUID(decoded["sub"])
+        token_version = decoded["ver"]
+    except (jwt.InvalidTokenError, KeyError, ValueError):
         raise HTTPException(status_code=401, detail="Invalid refresh token")
 
-    if decoded["type"] != "refresh":
+    user = await users_service.get_user_profile(db, user_id)
+    if user is None:
+        raise HTTPException(status_code=401, detail="Invalid refresh token")
+    if token_version != user.token_version:
         raise HTTPException(status_code=401, detail="Invalid refresh token")
 
-    user_id = decoded["sub"]
     return TokenResponse(
-        access_token=create_access_token(user_id),
+        access_token=create_access_token(user.id),
         refresh_token=data.refresh_token,
     )
 
@@ -123,3 +137,24 @@ async def me(
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
     return UserResponse.model_validate(user)
+
+
+@router.get("/users", tags=["Internal"])
+async def get_users_bulk(
+    ids: list[UUID] = Query(...), db: AsyncSession = Depends(get_async_db)
+) -> list[UserResponse]:
+    """Return profiles for a batch of user ids.
+
+    Intended for data enrichment by other services (e.g. Communication
+    attaching display names to chat lists).
+
+    Args:
+        ids: User ids passed as repeated query parameters.
+        db: Async database session.
+
+    Returns:
+        list[UserResponse]: Profiles of found users; missing ids are
+        silently omitted.
+    """
+    users = await users_service.get_users_bulk(db, ids)
+    return [UserResponse.model_validate(u) for u in users]

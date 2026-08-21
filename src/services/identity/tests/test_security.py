@@ -1,4 +1,5 @@
 """Test the security functions for password hashing and verification."""
+
 from app.users.security import hash_password, verify_password
 
 
