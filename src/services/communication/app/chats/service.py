@@ -128,6 +128,12 @@ async def send_message(
         db, chat_id, user_id, data.body, data.client_msg_id
     )
 
+    if msg.chat_id != chat_id or msg.body != data.body:
+        raise HTTPException(
+            status_code=409,
+            detail="client_msg_id already used for a different chat or message body",
+        )
+
     members = await chats_repository.list_chat_members(db, chat_id)
     recipient_ids = [str(m.user_id) for m in members]
 

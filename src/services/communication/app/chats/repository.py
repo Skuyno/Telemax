@@ -181,7 +181,12 @@ async def create_message(
                 Message.client_msg_id == client_msg_id,
             )
         )
-        return result.scalar_one()
+        existing_message = result.scalar_one_or_none()
+
+        if existing_message is None:
+            raise
+
+        return existing_message
 
 
 async def get_chat_messages(
