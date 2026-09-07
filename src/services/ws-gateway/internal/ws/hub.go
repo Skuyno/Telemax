@@ -13,9 +13,25 @@ import (
 )
 
 type InboundEvent struct {
-	Type         string          `json:"type"`
-	RecipientIDs []string        `json:"recipient_ids"`
-	Payload      json.RawMessage `json:"payload"`
+	ID           string   `json:"id"`
+	ChatID       string   `json:"chat_id"`
+	SenderID     string   `json:"sender_id"`
+	RecipientIDs []string `json:"recipient_ids"`
+	Body         string   `json:"body"`
+	CreatedAt    string   `json:"created_at"`
+}
+
+type MessageData struct {
+	MessageID string `json:"message_id"`
+	ChatID    string `json:"chat_id"`
+	SenderID  string `json:"sender_id"`
+	Body      string `json:"body"`
+	CreatedAt string `json:"created_at"`
+}
+
+type MessageCreatedEvent struct {
+	Type string      `json:"type"`
+	Data MessageData `json:"data"`
 }
 
 type Hub struct {
@@ -71,6 +87,23 @@ func (h *Hub) BroadcastToUsers(data []byte) {
 		return
 	}
 
+	outgoing := MessageCreatedEvent{
+		Type: "message.created",
+		Data: MessageData{
+			MessageID: event.ID,
+			ChatID: event.ChatID,
+			SenderID: event.SenderID,
+			Body: event.Body,
+			CreatedAt: event.CreatedAt,
+		},
+	}
+
+	payload, err := json.Marshal(outgoing)
+	if err != nil {
+		log.Printf("Failed to encode WebSocket event: %v", err)
+		return
+	}
+
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
@@ -78,13 +111,15 @@ func (h *Hub) BroadcastToUsers(data []byte) {
 		if connections, ok := h.users[recipientID]; ok {
 			for client := range connections {
 				select {
-				case client.send <- data:
+				case client.send <- payload:
 				default:
-					log.Printf("Client buffer full, dropping message for user=%s", recipientID)
+					log.Printf(
+						"Client buffer full, dropping message for user=%s",
+						recipientID,
+					)
 				}
 			}
 		}
-
 	}
 }
 
