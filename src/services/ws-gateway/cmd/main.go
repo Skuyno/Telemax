@@ -28,7 +28,7 @@ func main() {
 	defer natsClient.Close()
 	log.Println("Connected to NATS")
 
-	hub := ws.NewHub()
+	hub := ws.NewHub(redisClient)
 	go hub.Run()
 
 	_, err = natsClient.SubscribeToMessages("chat.message.created", hub.BroadcastToUsers)
@@ -56,7 +56,7 @@ func main() {
 			return
 		}
 
-		hub.ServeWs(redisClient, userID, w, r)
+		hub.ServeWs(userID, w, r)
 	})
 
 	addr := ":" + cfg.Port
