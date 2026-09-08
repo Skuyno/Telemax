@@ -12,6 +12,11 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+const (
+	presenceTTL     = 70 * time.Second
+	presenceTimeout = 2 * time.Second
+)
+
 type InboundEvent struct {
 	ID           string   `json:"id"`
 	ChatID       string   `json:"chat_id"`
@@ -35,19 +40,22 @@ type MessageCreatedEvent struct {
 }
 
 type Hub struct {
-	users map[string]map[*Client]struct{}
-
-	mu sync.RWMutex
+	presence *presence.Client
+	users    map[string]map[*Client]struct{}
+	mu       sync.RWMutex
 
 	register   chan *Client
 	unregister chan *Client
+	heartbeat  chan *Client
 }
 
-func NewHub() *Hub {
+func NewHub(presenceClient *presence.Client) *Hub {
 	return &Hub{
+		presence:   presenceClient,
 		users:      make(map[string]map[*Client]struct{}),
 		register:   make(chan *Client),
 		unregister: make(chan *Client),
+		heartbeat:  make(chan *Client),
 	}
 }
 
@@ -60,9 +68,16 @@ func (h *Hub) Run() {
 				h.users[client.userID] = make(map[*Client]struct{})
 			}
 			h.users[client.userID][client] = struct{}{}
+			count := len(h.users[client.userID])
+
 			h.mu.Unlock()
-			log.Printf("Client connected: user=%s (total connections: %d)", client.userID, len(h.users[client.userID]))
+			h.updatePresence(client.userID, true)
+			log.Printf(
+				"Client connected: user=%s (total connections: %d)",
+				client.userID, count,
+			)
 		case client := <-h.unregister:
+			lastConnection := false
 			h.mu.Lock()
 			if connections, ok := h.users[client.userID]; ok {
 				if _, exists := connections[client]; exists {
@@ -70,13 +85,48 @@ func (h *Hub) Run() {
 					close(client.send)
 					if len(connections) == 0 {
 						delete(h.users, client.userID)
+						lastConnection = true
 					}
 				}
 			}
 			h.mu.Unlock()
+
+			if lastConnection {
+				h.updatePresence(client.userID, false)
+			}
 			log.Printf("Client disconnected: user=%s", client.userID)
+		case client := <-h.heartbeat:
+			h.mu.RLock()
+			_, connected := h.users[client.userID][client]
+			h.mu.RUnlock()
+
+			if connected {
+				h.updatePresence(client.userID, true)
+			}
 		}
 
+	}
+}
+
+func (h *Hub) updatePresence(userID string, online bool) {
+	ctx, cancel := context.WithTimeout(
+		context.Background(),
+		presenceTimeout,
+	)
+	defer cancel()
+
+	var err error
+	if online {
+		err = h.presence.SetOnline(ctx, userID, presenceTTL)
+	} else {
+		err = h.presence.SetOffline(ctx, userID)
+	}
+
+	if err != nil {
+		log.Printf(
+			"Failed to update presence: user=%s online=%t error=%v",
+			userID, online, err,
+		)
 	}
 }
 
@@ -91,9 +141,9 @@ func (h *Hub) BroadcastToUsers(data []byte) {
 		Type: "message.created",
 		Data: MessageData{
 			MessageID: event.ID,
-			ChatID: event.ChatID,
-			SenderID: event.SenderID,
-			Body: event.Body,
+			ChatID:    event.ChatID,
+			SenderID:  event.SenderID,
+			Body:      event.Body,
 			CreatedAt: event.CreatedAt,
 		},
 	}
@@ -129,18 +179,15 @@ var upgrader = websocket.Upgrader{
 	},
 }
 
-func (h *Hub) ServeWs(presenceClient *presence.Client, userID string, w http.ResponseWriter, r *http.Request) {
+func (h *Hub) ServeWs(userID string, w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("WebSocket upgrade failed: %v", err)
 		return
 	}
 
-	client := NewClient(h, userID, conn, presenceClient)
-
+	client := NewClient(h, userID, conn)
 	h.register <- client
-
-	_ = presenceClient.SetOnline(context.Background(), userID, 70*time.Second)
 
 	go client.WritePump()
 	go client.ReadPump()

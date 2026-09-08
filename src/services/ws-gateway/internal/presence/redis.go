@@ -14,7 +14,8 @@ type Client struct {
 
 func New(redisURL string) (*Client, error) {
 	rdb := redis.NewClient(&redis.Options{
-		Addr: redisURL,
+		Addr:                  redisURL,
+		ContextTimeoutEnabled: true,
 	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

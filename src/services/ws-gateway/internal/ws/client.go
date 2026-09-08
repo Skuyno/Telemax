@@ -1,11 +1,8 @@
 package ws
 
 import (
-	"context"
 	"log"
 	"time"
-
-	"ws-gateway/internal/presence"
 
 	"github.com/gorilla/websocket"
 )
@@ -26,31 +23,32 @@ type Client struct {
 	userID   string
 	conn     *websocket.Conn
 	send     chan []byte
-	presence *presence.Client
 }
 
-func NewClient(hub *Hub, userID string, conn *websocket.Conn, presence *presence.Client) *Client {
+func NewClient(hub *Hub, userID string, conn *websocket.Conn) *Client {
 	return &Client{
 		hub:      hub,
 		userID:   userID,
 		conn:     conn,
 		send:     make(chan []byte, 256),
-		presence: presence,
 	}
 }
 
 func (c *Client) ReadPump() {
 	defer func() {
-		c.hub.unregister <- c
 		c.conn.Close()
-		_ = c.presence.SetOffline(context.Background(), c.userID)
+		c.hub.unregister <- c
 	}()
 
 	c.conn.SetReadLimit(maxMessageSize)
 	_ = c.conn.SetReadDeadline(time.Now().Add(pongWait))
 	c.conn.SetPongHandler(func(string) error {
-		_ = c.conn.SetReadDeadline(time.Now().Add(pongWait))
-		_ = c.presence.SetOnline(context.Background(), c.userID, 70*time.Second)
+		if err := c.conn.SetReadDeadline(
+			time.Now().Add(pongWait),
+		); err != nil {
+			return err
+		}
+		c.hub.heartbeat <- c
 		return nil
 	})
 
