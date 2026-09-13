@@ -139,14 +139,14 @@ async def me(
     return UserResponse.model_validate(user)
 
 
-@router.get("/users", tags=["Internal"])
+@router.get("/users", tags=["Users"])
 async def get_users_bulk(
     ids: list[UUID] = Query(...), db: AsyncSession = Depends(get_async_db)
 ) -> list[UserResponse]:
-    """Return profiles for a batch of user ids.
+    """Return public profiles for a batch of known user ids.
 
-    Intended for data enrichment by other services (e.g. Communication
-    attaching display names to chat lists).
+    Used by authenticated clients to resolve user ids received from chat
+    endpoints into profiles suitable for display.
 
     Args:
         ids: User ids passed as repeated query parameters.
