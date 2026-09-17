@@ -1,7 +1,7 @@
 <template>
   <div class="layout">
     <header class="layout__header">
-      <span class="layout__logo">Telemax</span>
+      <span class="layout__logo">Телемакс</span>
     </header>
     <main class="layout__content">
       <slot />
@@ -21,13 +21,17 @@
   display: flex;
   align-items: center;
   padding: 0 16px;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg-elevated);
+  background: var(--color-lift);
+  border-bottom: 1px solid var(--color-line);
 }
 
 .layout__logo {
-  font-weight: 600;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 14px;
+  text-transform: uppercase;
   letter-spacing: 0.02em;
+  color: var(--color-accent);
 }
 
 .layout__content {

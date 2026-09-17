@@ -5,7 +5,24 @@ export default defineNuxtConfig({
 
   modules: ['@pinia/nuxt', '@vueuse/nuxt'],
 
-  css: ['~/assets/css/main.css'],
+  css: [
+    '~/assets/styles/colors.css',
+    '~/assets/styles/fonts.css',
+    '~/assets/styles/base.css',
+  ],
+
+  app: {
+    head: {
+      link: [
+        { rel: 'preconnect', href: 'https://fonts.googleapis.com' },
+        { rel: 'preconnect', href: 'https://fonts.gstatic.com', crossorigin: '' },
+        {
+          rel: 'stylesheet',
+          href: 'https://fonts.googleapis.com/css2?family=Unbounded:wght@700&family=Space+Grotesk:wght@600&family=IBM+Plex+Mono:wght@400;500&display=swap',
+        },
+      ],
+    },
+  },
 
   runtimeConfig: {
     public: {

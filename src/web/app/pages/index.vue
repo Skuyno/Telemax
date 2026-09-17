@@ -1,6 +1,7 @@
 <script setup lang="ts">
 const config = useRuntimeConfig()
 const api = useApi()
+const auth = useAuthStore()
 
 const status = ref<'idle' | 'checking' | 'ok' | 'error'>('idle')
 const errorMessage = ref('')
@@ -32,6 +33,16 @@ async function checkApi() {
     </section>
 
     <section class="card">
+      <h2>Авторизация</h2>
+      <p v-if="auth.isAuthenticated">
+        Вы вошли как <strong>{{ auth.user?.username }}</strong>
+      </p>
+      <p v-else>
+        Вы не авторизованы. <NuxtLink to="/login">Перейти на страницу входа</NuxtLink>
+      </p>
+    </section>
+
+    <section class="card">
       <h2>Проверка связи с api-gateway</h2>
       <button @click="checkApi">Проверить /health</button>
       <p v-if="status === 'checking'">Проверяем...</p>
@@ -48,22 +59,37 @@ async function checkApi() {
   max-width: 640px;
   margin: 0 auto;
   padding: 32px 16px;
+  font-family: var(--font-mono);
+}
+
+h1 {
+  font-family: var(--font-heading);
 }
 
 .card {
   margin-top: 24px;
   padding: 16px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bg-elevated);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius);
+  background: var(--color-lift);
+}
+
+a {
+  color: var(--color-accent);
 }
 
 button {
   padding: 8px 16px;
-  border-radius: 6px;
-  border: 1px solid var(--border);
-  background: var(--accent);
-  color: white;
+  border-radius: var(--radius);
+  border: none;
+  background: var(--color-accent);
+  color: var(--color-ink);
+  font-family: var(--font-display);
+  font-weight: 700;
   cursor: pointer;
+}
+
+button:hover {
+  background: var(--color-accent-hover);
 }
 </style>
