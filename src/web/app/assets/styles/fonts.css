@@ -1,0 +1,13 @@
+/*
+  Telemax font tokens.
+  Actual font files are loaded via Google Fonts <link> tags in nuxt.config.ts (app.head).
+  This file only exposes the family stacks + shared type scale as CSS variables.
+*/
+:root {
+  --font-display: 'Unbounded', system-ui, sans-serif; /* logo, primary buttons: caps, letter-spacing .02em */
+  --font-heading: 'Space Grotesk', system-ui, sans-serif; /* titles, slogans: letter-spacing -.01em */
+  --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace; /* fields, labels, hints, errors */
+
+  --radius: 0px; /* design uses square corners everywhere */
+  --shadow-hard: 6px 6px 0 var(--color-ink);
+}

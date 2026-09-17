@@ -1,0 +1,25 @@
+/*
+  Telemax color tokens.
+  Source: design reference "Вход" screen (auth mockup).
+*/
+:root {
+  --color-void: #070b1c;
+  --color-ground: #0d1642;
+  --color-lift: #16225a;
+  --color-surface: #1c2a72;
+  --color-ink: #0b1236;
+
+  --color-accent: #ffcc2e;
+  --color-accent-hover: #ffe07a;
+  --color-accent-pressed: #e0a400;
+
+  --color-focus: #4fd8ff;
+  --color-success: #9be14b;
+  --color-error: #ff6b5e;
+
+  --color-text: #e6ecff;
+  --color-text-muted: #a9b8ea;
+  --color-text-dim: #7f97e6;
+
+  --color-line: #3d4f9c;
+}
