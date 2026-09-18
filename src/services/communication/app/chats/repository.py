@@ -216,3 +216,31 @@ async def get_chat_messages(
 
     result = await db.execute(stmt)
     return result.scalars().all()
+
+
+async def list_chat_peer_ids(
+    db: AsyncSession,
+    user_id: UUID,
+) -> Sequence[UUID]:
+    """Return users who share at least one chat with the given user.
+
+    Args:
+        db: Async database session.
+        user_id: ID of the user whose chat peers should be found.
+
+    Returns:
+        Sequence[UUID]: Unique IDs of other chat members, ordered by ID.
+    """
+    user_chat_ids = select(ChatMember.chat_id).where(ChatMember.user_id == user_id)
+
+    result = await db.execute(
+        select(ChatMember.user_id)
+        .where(
+            ChatMember.chat_id.in_(user_chat_ids),
+            ChatMember.user_id != user_id,
+        )
+        .distinct()
+        .order_by(ChatMember.user_id)
+    )
+
+    return result.scalars().all()

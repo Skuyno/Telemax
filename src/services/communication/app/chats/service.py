@@ -180,3 +180,18 @@ async def get_chat_messages(
     msgs = await chats_repository.get_chat_messages(db, chat_id, limit, before_msg_id)
 
     return msgs
+
+async def list_chat_peer_ids(
+    db: AsyncSession,
+    user_id: UUID,
+) -> Sequence[UUID]:
+    """Return IDs of users who share a chat with the given user.
+
+    Args:
+        db: Async database session.
+        user_id: ID of the user whose chat peers should be found.
+
+    Returns:
+        Sequence[UUID]: Unique IDs of the user's chat peers.
+    """
+    return await chats_repository.list_chat_peer_ids(db, user_id)
