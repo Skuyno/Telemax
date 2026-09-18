@@ -14,5 +14,7 @@ const showSettings = computed(() => route.path === '/settings')
   <NuxtLayout>
     <NuxtPage />
   </NuxtLayout>
-  <SettingsModal v-if="showSettings" />
+  <Transition name="settings-modal">
+    <SettingsModal v-if="showSettings" />
+  </Transition>
 </template>
