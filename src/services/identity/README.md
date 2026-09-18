@@ -13,7 +13,7 @@ app/
   config.py    конфигурация из окружения
   database.py  SQLAlchemy engine и фабрика сессий
 migrations/    миграции Alembic
-tests/         тесты аутентификации и токенов
+tests/         тесты аутентификации, токенов и поиска пользователей
 ```
 
 ## HTTP API
@@ -25,6 +25,7 @@ tests/         тесты аутентификации и токенов
 | `POST /auth/refresh` | Получение нового access по refresh JWT | публичный, нужен refresh JWT |
 | `GET /me` | Профиль текущего пользователя | через API Gateway |
 | `GET /users?ids=...` | Профили нескольких пользователей | через API Gateway |
+| `POST /users/search` | Поиск пользователей по тегу/email/телефону/имени | через API Gateway |
 | `GET /me/settings` | Настройки текущего пользователя | через API Gateway |
 | `PATCH /me/settings` | Изменить настройки (например, `notifications_enabled`, `accept_calls`) | через API Gateway |
 | `GET /internal/users/{id}` | Проверка существования пользователя | внутренний |

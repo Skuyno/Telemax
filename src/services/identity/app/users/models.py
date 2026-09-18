@@ -18,6 +18,7 @@ class User(Base):
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid7)
     username: Mapped[str] = mapped_column(String(32), unique=True)
     email: Mapped[str | None] = mapped_column(String(255), unique=True)
+    phone: Mapped[str | None] = mapped_column(String(32))
     password_hash: Mapped[str] = mapped_column(String(255))
     display_name: Mapped[str | None] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(

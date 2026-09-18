@@ -125,6 +125,7 @@ async function onLogout() {
   align-items: center;
   justify-content: center;
   background: rgba(7, 11, 28, 0.6);
+  transition: opacity 0.18s ease-out;
 }
 
 .settings-modal__panel {
@@ -135,6 +136,26 @@ async function onLogout() {
   background: var(--color-lift);
   border: 1px solid var(--color-line);
   box-shadow: var(--shadow-hard);
+  transition: opacity 0.18s ease-out, transform 0.18s ease-out;
+}
+
+.settings-modal-enter-from,
+.settings-modal-leave-to {
+  opacity: 0;
+}
+
+.settings-modal-enter-from .settings-modal__panel,
+.settings-modal-leave-to .settings-modal__panel {
+  opacity: 0;
+  transform: scale(0.96) translateY(8px);
+}
+
+.settings-modal-leave-active {
+  transition-duration: 0.14s;
+}
+
+.settings-modal-leave-active .settings-modal__panel {
+  transition-duration: 0.14s;
 }
 
 .settings-modal__head {
