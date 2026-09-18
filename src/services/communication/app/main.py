@@ -8,6 +8,7 @@ from app.chats.router import router as chats_router
 from app.config import settings
 from app.events import nats_client
 from app.health.router import router as health_router
+from app.internal.router import router as internal_router
 
 
 @asynccontextmanager
@@ -22,3 +23,5 @@ app = FastAPI(lifespan=lifespan)
 
 app.include_router(chats_router)
 app.include_router(health_router)
+app.include_router(internal_router)
+
