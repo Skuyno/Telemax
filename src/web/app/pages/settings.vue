@@ -1,10 +1,7 @@
-<template>
-  <div class="settings" />
-</template>
+<script setup lang="ts">
+definePageMeta({ layout: false })
+</script>
 
-<style scoped>
-.settings {
-  flex: 1;
-  background: var(--color-ground);
-}
-</style>
+<template>
+  <div />
+</template>

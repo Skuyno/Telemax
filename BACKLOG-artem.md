@@ -98,8 +98,31 @@
 
 ---
 
+## 2026-09-18 — Синхронизация с `dev`
+
+`origin/dev` подтянула страницу личных чатов от `ksenia` (компоненты `chat/*`, `stores/chat.ts`, `index.vue` как экран чатов). Смержено в `artem` без конфликтов; наши файлы (шестерёнка настроек, `middleware/auth.global.ts`, `stores/settings.ts`) не задеты — `index.vue` теперь чужая страница чатов с `layout: false`, это ожидаемо.
+
+---
+
+## 2026-09-18 — API для настроек (второе разовое исключение на бэкенд)
+
+По итогам обсуждения с командой (см. переписку с бэкенд-разработчиком max) решили не заводить отдельный сервис настроек, а разложить их по сервисам-владельцам сущностей: глобальные настройки — в `identity`, настройки чата — в `communication`, как отдельные независимые модули (не смешивая с `users/`/`chats/`). **По явному разрешению пользователя** реализовано полностью (4 коммита, каждый — по конвенции типов из корневого `README.md`):
+
+- **`feat: add user settings endpoint to identity`** — новый модуль `src/services/identity/app/settings/` (`models.py`, `schemas.py`, `repository.py`, `service.py`, `router.py`), таблица `user_settings` (1:1 с `users` по `user_id`, поля `notifications_enabled`, `accept_calls`). Эндпоинты `GET/PATCH /me/settings`, авторизация через тот же `X-User-Id`, что и `/me`. Миграция `deac91b0f3e7_add_user_settings_table.py`.
+- **`feat: add chat settings module to communication`** — аналогичный модуль `src/services/communication/app/settings/`, отдельная таблица `chat_settings` (composite PK `chat_id + user_id`, поле `notifications_muted`) — намеренно **не** колонка в `ChatMember`, чтобы `chats/` остался только про чаты/сообщения. Единственная точка связи двух модулей — вызов `chats_repository.is_user_in_chat()` из `settings/service.py` для проверки членства (403, если чат чужой). Эндпоинты `GET/PATCH /chats/{chat_id}/settings`. Миграция `d5d6506f04e2_add_chat_settings_table.py`.
+- **`feat: route /me/settings and PATCH through api-gateway`** — в `api-gateway/app/router.py` два фикса: `resolve_target` теперь маршрутизирует по сегменту `"me"` (а не точному совпадению `path == "me"`), иначе `/me/settings` не находил сервис; в проксирующий роут добавлен метод `PATCH` (был только `GET`/`POST` — иначе `PATCH` ловил бы тот же `405`, что раньше ловил `OPTIONS` до CORS-фикса).
+- **`docs: document settings endpoints in identity and communication README`** — обе таблицы HTTP API дополнены новыми строками.
+
+**Проверено end-to-end** через `docker-compose-local.yml` (docker compose up, реальные HTTP-запросы через gateway): регистрация → логин → `GET/PATCH /me/settings` (дефолт создаётся при первом обращении, патч сохраняется) → создание чата между двумя пользователями → `GET/PATCH /chats/{id}/settings` → проверка 403 на чужом чате. Всё отработало корректно.
+
+Заодно поправил свой локальный `docker-compose-local.yml` (не коммитится, gitignore): у `api-gateway` порты нужно объявлять как `ports: !override`, иначе compose **склеивает** список портов с базовым файлом и остаётся конфликтующий `8000:8000` — та же проблема, о которой писала `ksenia` в своём бэклоге.
+
+---
+
 ## Правила, установленные пользователем по ходу работы
 
-- Работаем только над фронтендом (`src/web/`); бэкенд — только для изучения контрактов API, не редактируем без явного разового разрешения.
+- Работаем только над фронтендом (`src/web/`); бэкенд — только для изучения контрактов API, не редактируем без явного разового разрешения на конкретную правку.
 - Не добавлять/обновлять npm-зависимости без необходимости и согласования.
 - После крупных изменений — вести и дополнять этот файл (`BACKLOG-artem.md`).
+- Перед началом работы и перед PR в `dev` — синхронизировать `artem` с `origin/dev`.
+- Коммиты оформлять строго по таблице типов из корневого `README.md` (`feat`/`fix`/`docs`/`sec`/`build`/`ci`/`refactor`/`revert`/`style`/`init`).

@@ -7,6 +7,7 @@
 ```text
 app/
   chats/       модели, схемы, репозиторий, бизнес-логика и маршруты
+  settings/    настройки чата (mute уведомлений), независимо от chats/
   health/      проверка PostgreSQL
   events.py    подключение и публикация событий NATS JetStream
   config.py    конфигурация из окружения
@@ -24,13 +25,15 @@ tests/         интеграционные тесты чатов и истор�
 | `GET /chats/{id}/members` | Получить участников диалога |
 | `POST /chats/{id}/messages` | Сохранить и отправить сообщение |
 | `GET /chats/{id}/messages` | Получить историю с курсором `before_msg_id` |
+| `GET /chats/{id}/settings` | Получить настройки чата для текущего пользователя |
+| `PATCH /chats/{id}/settings` | Изменить настройки чата (например, `notifications_muted`) |
 | `GET /health/db` | Проверить подключение к БД |
 
 Точные схемы доступны по `/docs` и `/openapi.json`. Все пользовательские маршруты ожидают внутренний заголовок `X-User-Id` от API Gateway.
 
 ## Взаимодействия
 
-- **PostgreSQL** хранит `chats`, `chat_members`, `direct_chats` и `messages`.
+- **PostgreSQL** хранит `chats`, `chat_members`, `direct_chats`, `messages` и `chat_settings`.
 - **Identity Service** проверяет существование второго участника при создании диалога.
 - **NATS JetStream** получает событие `chat.message.created` после сохранения сообщения.
 
