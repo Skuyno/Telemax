@@ -18,6 +18,7 @@ from app.users.schemas import (
     TokenRequest,
     TokenResponse,
     UserResponse,
+    UserSearchRequest,
 )
 from app.users.tokens import create_access_token, create_refresh_token
 
@@ -157,4 +158,38 @@ async def get_users_bulk(
         silently omitted.
     """
     users = await users_service.get_users_bulk(db, ids)
+    return [UserResponse.model_validate(u) for u in users]
+
+
+@router.post("/users/search", tags=["Users"], response_model=list[UserResponse])
+async def search_users(
+    data: UserSearchRequest,
+    db: AsyncSession = Depends(get_async_db),
+) -> list[UserResponse]:
+    """Search the user directory by tag, email, phone, and/or name.
+
+    `tag` matches only a prefix of the username (an optional leading "@"
+    is ignored); `email`, `phone`, and `name` match any substring; `query`
+    is a shortcut that matches a substring against email, phone, or name
+    all at once (never against tag). Matching is case-insensitive. There
+    is no built-in page size: pass a larger `limit` on each subsequent
+    request (e.g. 30, then 60, then 90) to page through more results.
+
+    Args:
+        data: Search filters and the result limit.
+        db: Async database session.
+
+    Returns:
+        list[UserResponse]: Up to `limit` matching profiles ordered by
+        username.
+    """
+    users = await users_service.search_users(
+        db,
+        tag=data.tag,
+        email=data.email,
+        phone=data.phone,
+        name=data.name,
+        query=data.query,
+        limit=data.limit,
+    )
     return [UserResponse.model_validate(u) for u in users]
