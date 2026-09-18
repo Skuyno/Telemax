@@ -2,11 +2,19 @@
 import type { Chat, Message } from '~/types/chat'
 import { dayKey, formatDateSeparator } from '~/utils/chatTime'
 
-const props = defineProps<{ chat: Chat; messages: Message[]; meId: string }>()
+const props = defineProps<{
+  chat: Chat
+  messages: Message[]
+  meId: string
+  send: (text: string) => Promise<void>
+  loadError?: string
+}>()
 
-const emit = defineEmits<{ send: [string]; back: [] }>()
+const emit = defineEmits<{ back: []; loadOlder: [] }>()
 
 const draft = ref('')
+const isSending = ref(false)
+const sendError = ref('')
 const feed = ref<HTMLElement | null>(null)
 
 /** Лента, разбитая на группы по дням — под разделители дат. */
@@ -28,15 +36,58 @@ async function scrollToBottom() {
   if (feed.value) feed.value.scrollTop = feed.value.scrollHeight
 }
 
-function onSend() {
+async function onSend() {
   const text = draft.value.trim()
-  if (!text) return
-  emit('send', text)
-  draft.value = ''
-  scrollToBottom()
+  if (!text || isSending.value) return
+
+  isSending.value = true
+  sendError.value = ''
+  try {
+    await props.send(text)
+    draft.value = ''
+  } catch (e) {
+    // Черновик не очищаем — чтобы можно было отправить ещё раз.
+    sendError.value = extractApiErrorMessage(e, 'Не удалось отправить сообщение')
+  } finally {
+    isSending.value = false
+  }
 }
 
-watch(() => props.chat.id, scrollToBottom, { immediate: true })
+function onScroll() {
+  if (feed.value && feed.value.scrollTop < 40) emit('loadOlder')
+}
+
+/** Новое сообщение внизу — прокручиваем к нему; старые подгрузились сверху — держим позицию. */
+watch(
+  () => ({
+    chatId: props.chat.id,
+    count: props.messages.length,
+    firstId: props.messages[0]?.id,
+  }),
+  async (next, prev) => {
+    const el = feed.value
+    const prependedOlder =
+      next.chatId === prev?.chatId &&
+      prev.count > 0 &&
+      next.count > prev.count &&
+      next.firstId !== prev.firstId
+    if (!el || !prependedOlder) return scrollToBottom()
+
+    const fromBottom = el.scrollHeight - el.scrollTop
+    await nextTick()
+    el.scrollTop = el.scrollHeight - fromBottom
+  },
+)
+
+watch(
+  () => props.chat.id,
+  () => {
+    draft.value = ''
+    sendError.value = ''
+    scrollToBottom()
+  },
+  { immediate: true },
+)
 </script>
 
 <template>
@@ -52,7 +103,7 @@ watch(() => props.chat.id, scrollToBottom, { immediate: true })
       <span class="dialog__title">{{ chat.title }}</span>
     </header>
 
-    <div ref="feed" class="dialog__feed">
+    <div ref="feed" class="dialog__feed" @scroll="onScroll">
       <div v-for="group in groups" :key="group.key" class="dialog__group">
         <div class="dialog__date">
           <span class="dialog__date-line" />
@@ -68,10 +119,13 @@ watch(() => props.chat.id, scrollToBottom, { immediate: true })
         />
       </div>
 
-      <p v-if="!messages.length" class="dialog__no-messages">
+      <p v-if="loadError" class="dialog__no-messages is-error">{{ loadError }}</p>
+      <p v-else-if="!messages.length" class="dialog__no-messages">
         Сообщений пока нет — напишите первым.
       </p>
     </div>
+
+    <p v-if="sendError" class="dialog__error">{{ sendError }}</p>
 
     <footer class="dialog__composer">
       <input
@@ -83,7 +137,7 @@ watch(() => props.chat.id, scrollToBottom, { immediate: true })
         @keydown.enter="onSend"
       />
 
-      <button type="button" class="dialog__send" @click="onSend">
+      <button type="button" class="dialog__send" :disabled="isSending" @click="onSend">
         <span aria-hidden="true">▶</span>
         Отправить
       </button>
@@ -250,12 +304,30 @@ watch(() => props.chat.id, scrollToBottom, { immediate: true })
   cursor: pointer;
 }
 
-.dialog__send:hover {
+.dialog__send:hover:not(:disabled) {
   background: var(--color-accent-hover);
 }
 
-.dialog__send:active {
+.dialog__send:active:not(:disabled) {
   background: var(--color-accent-pressed);
+}
+
+.dialog__send:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.dialog__no-messages.is-error {
+  color: var(--color-error);
+}
+
+.dialog__error {
+  margin: 0;
+  flex: none;
+  padding: 6px 14px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-error);
 }
 
 @media (max-width: 900px) {

@@ -1,14 +1,41 @@
 <script setup lang="ts">
 const chatStore = useChatStore()
+const { loadChats, loadMessages, loadOlderMessages, sendMessage } = useChats()
 
 const isNarrow = ref(false)
 const showDialogOnNarrow = ref(false)
+const messagesError = ref('')
 
 function onSelect() {
   showDialogOnNarrow.value = true
 }
 
+async function send(text: string) {
+  if (chatStore.activeChatId) await sendMessage(chatStore.activeChatId, text)
+}
+
+function onLoadOlder() {
+  if (chatStore.activeChatId) loadOlderMessages(chatStore.activeChatId).catch(() => {})
+}
+
+watch(
+  () => chatStore.activeChatId,
+  async (chatId) => {
+    messagesError.value = ''
+    if (!chatId) return
+    try {
+      await loadMessages(chatId)
+    } catch (e) {
+      messagesError.value = extractApiErrorMessage(e, 'Не удалось загрузить сообщения')
+    }
+  },
+)
+
 onMounted(() => {
+  // Экран монтируется заново при каждом входе — данные прошлого пользователя не должны остаться.
+  chatStore.reset()
+  loadChats()
+
   const media = window.matchMedia('(max-width: 900px)')
   isNarrow.value = media.matches
   media.addEventListener('change', (event) => {
@@ -30,10 +57,12 @@ const showDialog = computed(() => !isNarrow.value || showDialogOnNarrow.value)
         :chat="chatStore.activeChat"
         :messages="chatStore.activeMessages"
         :me-id="chatStore.meId"
-        @send="chatStore.sendMessage"
+        :send="send"
+        :load-error="messagesError"
+        @load-older="onLoadOlder"
         @back="showDialogOnNarrow = false"
       />
-      <ChatEmpty v-else :has-chats="chatStore.chats.length > 0" />
+      <ChatEmpty v-else :has-chats="chatStore.chats.length > 0 || chatStore.isLoadingChats" />
     </template>
   </div>
 </template>
