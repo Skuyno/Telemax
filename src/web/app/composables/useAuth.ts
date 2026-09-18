@@ -11,6 +11,7 @@ export function useAuth() {
       username: me.username,
       displayName: me.display_name,
       email: me.email,
+      createdAt: me.created_at,
     })
   }
 
@@ -34,6 +35,7 @@ export function useAuth() {
 
   function logout() {
     auth.logout()
+    useSettingsStore().reset()
   }
 
   return { login, register, logout, fetchMe }

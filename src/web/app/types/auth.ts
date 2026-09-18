@@ -3,6 +3,7 @@ export interface User {
   username: string
   displayName: string | null
   email: string | null
+  createdAt: string
 }
 
 export interface AuthTokens {

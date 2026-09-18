@@ -1,10 +1,17 @@
-/** Per-user app settings. Fields will grow as settings UI is built out. */
+/** Global user settings, mirrors GET/PATCH /me/settings on the identity service. */
 export interface UserSettings {
-  theme: 'system' | 'light' | 'dark'
+  notificationsEnabled: boolean
+  acceptCalls: boolean
 }
 
-export function createDefaultUserSettings(): UserSettings {
-  return {
-    theme: 'system',
-  }
+/** Raw response shape from GET/PATCH /me/settings */
+export interface UserSettingsResponse {
+  user_id: string
+  notifications_enabled: boolean
+  accept_calls: boolean
+}
+
+export interface UserSettingsUpdate {
+  notificationsEnabled?: boolean
+  acceptCalls?: boolean
 }
