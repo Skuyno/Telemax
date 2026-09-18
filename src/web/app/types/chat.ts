@@ -1,14 +1,20 @@
+export interface ChatPreview {
+  body: string
+  createdAt: string
+  authorLabel?: string
+}
+
 export interface Chat {
   id: string
   title: string
-  lastMessage?: Message
-  unreadCount: number
+  initials: string
+  lastMessage?: ChatPreview
 }
 
 export interface Message {
   id: string
   chatId: string
   senderId: string
-  text: string
+  body: string
   createdAt: string
 }
