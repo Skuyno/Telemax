@@ -18,3 +18,37 @@ export interface Message {
   body: string
   createdAt: string
 }
+
+/** Пользователь из поиска — чтобы начать с ним чат. */
+export interface UserSearchResult {
+  id: string
+  username: string
+  title: string
+  initials: string
+}
+
+/** Raw response shape from GET /chats */
+export interface ChatResponse {
+  id: string
+  last_message: {
+    body: string
+    sender_id: string
+    created_at: string
+  } | null
+}
+
+/** Raw response shape from GET /chats/{id}/members */
+export interface ChatMemberResponse {
+  user_id: string
+  role: string
+  joined_at: string
+}
+
+/** Raw response shape from GET/POST /chats/{id}/messages */
+export interface MessageResponse {
+  id: string
+  chat_id: string
+  sender_id: string
+  body: string
+  created_at: string
+}
