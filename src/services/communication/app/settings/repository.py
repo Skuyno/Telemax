@@ -22,7 +22,9 @@ async def get(db: AsyncSession, chat_id: UUID, user_id: UUID) -> ChatSettings | 
     return await db.get(ChatSettings, {"chat_id": chat_id, "user_id": user_id})
 
 
-async def create_default(db: AsyncSession, chat_id: UUID, user_id: UUID) -> ChatSettings:
+async def create_default(
+    db: AsyncSession, chat_id: UUID, user_id: UUID
+) -> ChatSettings:
     """Create a settings row with default values for a user in a chat.
 
     Args:
