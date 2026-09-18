@@ -75,6 +75,17 @@ services:
         condition: service_healthy
       nats:
         condition: service_started
+  web:
+    build: ../src/web
+    container_name: web
+    environment:
+      NUXT_PUBLIC_API_BASE: ${NUXT_PUBLIC_API_BASE:-http://localhost:8000}
+      NUXT_PUBLIC_WS_BASE: ${NUXT_PUBLIC_WS_BASE:-ws://localhost:4333}
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api-gateway
+      - ws-gateway
 
 volumes:
   pgdata:

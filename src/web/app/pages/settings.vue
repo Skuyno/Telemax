@@ -1,9 +1,9 @@
 <template>
-  <div class="home" />
+  <div class="settings" />
 </template>
 
 <style scoped>
-.home {
+.settings {
   flex: 1;
   background: var(--color-ground);
 }
