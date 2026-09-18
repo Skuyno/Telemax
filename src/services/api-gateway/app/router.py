@@ -27,14 +27,16 @@ def resolve_target(path: str) -> str:
         HTTPException: 404 if the path doesn't belong to any service.
     """
     segment = path.split("/", 1)[0]
-    if segment in ("auth", "users") or path == "me":
+    if segment in ("auth", "users", "me"):
         return settings.identity_url
     if segment == "chats":
         return settings.communication_url
     raise HTTPException(status_code=404)
 
 
-@router.api_route("/{path:path}", methods=["GET", "POST"], include_in_schema=False)
+@router.api_route(
+    "/{path:path}", methods=["GET", "POST", "PATCH"], include_in_schema=False
+)
 async def proxy(
     path: str,
     request: Request,
