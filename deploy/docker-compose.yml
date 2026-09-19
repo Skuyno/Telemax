@@ -79,11 +79,24 @@ services:
     build: ../src/web
     container_name: web
     environment:
-      NUXT_PUBLIC_API_BASE: ${NUXT_PUBLIC_API_BASE:-http://localhost:8000}
-      NUXT_PUBLIC_WS_BASE: ${NUXT_PUBLIC_WS_BASE:-ws://localhost:4333}
+      # Relative paths: web sits behind nginx on the same origin as
+      # api-gateway/ws-gateway, so browser requests are same-origin and
+      # never trigger CORS. Override to an absolute URL only if hitting
+      # web directly on its own port, bypassing nginx.
+      NUXT_PUBLIC_API_BASE: ${NUXT_PUBLIC_API_BASE:-/api}
+      NUXT_PUBLIC_WS_BASE: ${NUXT_PUBLIC_WS_BASE:-/ws}
     ports:
       - "3000:3000"
     depends_on:
+      - api-gateway
+      - ws-gateway
+  nginx:
+    build: ../src/services/nginx
+    container_name: nginx
+    ports:
+      - "80:80"
+    depends_on:
+      - web
       - api-gateway
       - ws-gateway
 

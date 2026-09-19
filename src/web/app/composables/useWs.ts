@@ -1,3 +1,10 @@
+/** Resolves a relative "/ws" base (behind nginx) against the current page's origin. */
+function resolveWsBase(base: string): string {
+  if (!base.startsWith('/')) return base
+  const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
+  return `${protocol}://${window.location.host}${base}`
+}
+
 export function useWs() {
   const config = useRuntimeConfig()
   const auth = useAuthStore()
@@ -7,7 +14,7 @@ export function useWs() {
   function connect() {
     if (socket.value || !auth.accessToken) return
 
-    const url = `${config.public.wsBase}?token=${auth.accessToken}`
+    const url = `${resolveWsBase(config.public.wsBase)}?token=${auth.accessToken}`
     const ws = new WebSocket(url)
 
     ws.onopen = () => {
