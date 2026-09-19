@@ -39,7 +39,7 @@ const emit = defineEmits<{ 'update:modelValue': [boolean] }>()
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 14px 0;
+  padding: 18px 0;
   cursor: pointer;
 }
 
@@ -56,23 +56,27 @@ const emit = defineEmits<{ 'update:modelValue': [boolean] }>()
 
 .toggle-row__label {
   font-family: var(--font-heading);
-  font-size: 14px;
+  font-weight: 600;
+  font-size: 15px;
   color: var(--color-text);
 }
 
 .toggle-row__hint {
   font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--color-text-dim);
+  font-size: 12px;
+  color: var(--color-text-muted);
 }
 
 .toggle-row__switch {
   position: relative;
   flex: none;
-  width: 40px;
-  height: 22px;
+  width: 52px;
+  height: 28px;
   background: var(--color-ground);
   border: 1px solid var(--color-line);
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease;
 }
 
 .toggle-row__switch.is-on {
@@ -90,16 +94,23 @@ const emit = defineEmits<{ 'update:modelValue': [boolean] }>()
 
 .toggle-row__thumb {
   position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 16px;
-  height: 16px;
-  background: var(--color-text);
-  transition: transform 0.15s ease;
+  top: 3px;
+  left: 3px;
+  width: 20px;
+  height: 20px;
+  background: var(--color-text-dim);
+  transition:
+    transform 0.15s ease,
+    background 0.15s ease;
 }
 
 .toggle-row__switch.is-on .toggle-row__thumb {
   background: var(--color-ink);
-  transform: translateX(18px);
+  transform: translateX(24px);
+}
+
+.toggle-row:focus-within .toggle-row__switch {
+  outline: 1px solid var(--color-focus);
+  outline-offset: 2px;
 }
 </style>
