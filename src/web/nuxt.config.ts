@@ -27,7 +27,8 @@ export default defineNuxtConfig({
   runtimeConfig: {
     public: {
       apiBase: process.env.NUXT_PUBLIC_API_BASE || 'http://localhost:8000',
-      wsBase: process.env.NUXT_PUBLIC_WS_BASE || 'ws://localhost:4333',
+      // С путём /ws: ws-gateway слушает только его, корень отвечает 404.
+      wsBase: process.env.NUXT_PUBLIC_WS_BASE || 'ws://localhost:4333/ws',
     },
   },
 })

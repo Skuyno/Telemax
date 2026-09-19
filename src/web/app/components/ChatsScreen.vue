@@ -1,6 +1,14 @@
 <script setup lang="ts">
 const chatStore = useChatStore()
-const { loadChats, loadMessages, loadOlderMessages, sendMessage } = useChats()
+const {
+  loadChats,
+  loadMessages,
+  loadOlderMessages,
+  sendMessage,
+  handleRealtimeEvent,
+  resync,
+} = useChats()
+const ws = useWs({ onMessage: handleRealtimeEvent, onReconnect: resync })
 
 const isNarrow = ref(false)
 const showDialogOnNarrow = ref(false)
@@ -35,6 +43,8 @@ onMounted(() => {
   // Экран монтируется заново при каждом входе — данные прошлого пользователя не должны остаться.
   chatStore.reset()
   loadChats()
+  // Новые сообщения приходят сразу, без F5.
+  ws.connect()
 
   const media = window.matchMedia('(max-width: 900px)')
   isNarrow.value = media.matches
@@ -42,6 +52,9 @@ onMounted(() => {
     isNarrow.value = event.matches
   })
 })
+
+// Экран размонтируется при выходе из аккаунта — сокет старого пользователя закрываем.
+onBeforeUnmount(() => ws.disconnect())
 
 const showSidebar = computed(() => !isNarrow.value || !showDialogOnNarrow.value)
 const showDialog = computed(() => !isNarrow.value || showDialogOnNarrow.value)
