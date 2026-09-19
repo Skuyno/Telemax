@@ -75,6 +75,8 @@ services:
         condition: service_healthy
       nats:
         condition: service_started
+      communication:
+        condition: service_healthy
   web:
     build: ../src/web
     container_name: web
