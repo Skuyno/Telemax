@@ -87,8 +87,6 @@ services:
       # web directly on its own port, bypassing nginx.
       NUXT_PUBLIC_API_BASE: ${NUXT_PUBLIC_API_BASE:-/api}
       NUXT_PUBLIC_WS_BASE: ${NUXT_PUBLIC_WS_BASE:-/ws}
-    ports:
-      - "3000:3000"
     depends_on:
       - api-gateway
       - ws-gateway
