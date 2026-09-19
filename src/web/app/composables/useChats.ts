@@ -4,6 +4,7 @@ import type {
   ChatMemberResponse,
   ChatResponse,
   Message,
+  MessageCreatedEvent,
   MessageResponse,
   UserSearchResult,
 } from '~/types/chat'
@@ -24,6 +25,10 @@ function toMessage(raw: MessageResponse): Message {
     body: raw.body,
     createdAt: raw.created_at,
   }
+}
+
+function isMessageCreated(event: unknown): event is MessageCreatedEvent {
+  return (event as MessageCreatedEvent | null)?.type === 'message.created'
 }
 
 function displayName(user: UserResponse): string {
@@ -59,14 +64,10 @@ export function useChats() {
         (list) => list.find((member) => member.user_id !== me)?.user_id ?? me,
       )
 
-      // По одному id на запрос: api-gateway теряет повторяющиеся query-параметры
-      // и из `?ids=a&ids=b` пропускает только последний. Когда починят — вернуть один запрос.
       const uniqueIds = [...new Set(peerIds)]
-      const users = (
-        await Promise.all(
-          uniqueIds.map((id) => api<UserResponse[]>('/users', { query: { ids: id } })),
-        )
-      ).flat()
+      const users = uniqueIds.length
+        ? await api<UserResponse[]>('/users', { query: { ids: uniqueIds } })
+        : []
       const nameById = new Map(users.map((user) => [user.id, displayName(user)]))
 
       chatStore.setChats(
@@ -180,6 +181,35 @@ export function useChats() {
     chatStore.setActiveChat(chat.id)
   }
 
+  /**
+   * Новое сообщение из ws-gateway. Приходит всем участникам чата, в том числе
+   * отправителю: своё сообщение уже добавлено после REST-ответа, addMessage
+   * отсеет дубль по id.
+   */
+  function handleRealtimeEvent(event: unknown) {
+    if (!isMessageCreated(event)) return
+    const { data } = event
+
+    const isKnownChat = chatStore.chats.some((chat) => chat.id === data.chat_id)
+    chatStore.addMessage({
+      id: data.message_id,
+      chatId: data.chat_id,
+      senderId: data.sender_id,
+      body: data.body,
+      createdAt: data.created_at,
+    })
+
+    // Написал человек, с которым чата ещё нет в списке, — подтягиваем список заново.
+    if (!isKnownChat) loadChats()
+  }
+
+  /** Пока сокет был оборван, сообщения могли прийти мимо нас — перечитываем с сервера. */
+  async function resync() {
+    await loadChats()
+    const chatId = chatStore.activeChatId
+    if (chatId) await loadMessages(chatId).catch(() => {})
+  }
+
   return {
     loadChats,
     loadMessages,
@@ -187,5 +217,7 @@ export function useChats() {
     sendMessage,
     searchUsers,
     openChatWith,
+    handleRealtimeEvent,
+    resync,
   }
 }

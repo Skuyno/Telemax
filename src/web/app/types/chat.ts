@@ -44,6 +44,21 @@ export interface ChatMemberResponse {
   joined_at: string
 }
 
+/**
+ * Событие из ws-gateway о новом сообщении.
+ * Внимание: id здесь называется `message_id`, а не `id`, как в REST.
+ */
+export interface MessageCreatedEvent {
+  type: 'message.created'
+  data: {
+    message_id: string
+    chat_id: string
+    sender_id: string
+    body: string
+    created_at: string
+  }
+}
+
 /** Raw response shape from GET/POST /chats/{id}/messages */
 export interface MessageResponse {
   id: string
