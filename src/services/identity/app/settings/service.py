@@ -40,4 +40,4 @@ async def update_settings(
     """
     settings = await get_or_create_settings(db, user_id)
     patch = data.model_dump(exclude_unset=True)
-    return await settings_repository.update(db, settings, patch)
+    return await settings_repository.update_user_settings(db, settings, patch)

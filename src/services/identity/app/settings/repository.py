@@ -37,7 +37,7 @@ async def create_default(db: AsyncSession, user_id: UUID) -> UserSettings:
     return settings
 
 
-async def update(
+async def update_user_settings(
     db: AsyncSession, settings: UserSettings, patch: dict[str, Any]
 ) -> UserSettings:
     """Apply a partial update to a settings row.

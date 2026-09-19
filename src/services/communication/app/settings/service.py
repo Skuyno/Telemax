@@ -35,7 +35,7 @@ async def get_or_create_settings(
     if not await chats_repository.is_user_in_chat(db, chat_id, user_id):
         raise HTTPException(status_code=403, detail="not a user chat")
 
-    settings = await settings_repository.get(db, chat_id, user_id)
+    settings = await settings_repository.get_chat_settings(db, chat_id, user_id)
     if settings is None:
         settings = await settings_repository.create_default(db, chat_id, user_id)
     return settings
@@ -63,4 +63,4 @@ async def update_settings(
     """
     settings = await get_or_create_settings(db, chat_id, user_id)
     patch = data.model_dump(exclude_unset=True)
-    return await settings_repository.update(db, settings, patch)
+    return await settings_repository.update_chat_settings(db, settings, patch)

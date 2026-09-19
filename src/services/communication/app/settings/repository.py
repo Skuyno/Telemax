@@ -8,7 +8,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.settings.models import ChatSettings
 
 
-async def get(db: AsyncSession, chat_id: UUID, user_id: UUID) -> ChatSettings | None:
+async def get_chat_settings(
+    db: AsyncSession, chat_id: UUID, user_id: UUID
+) -> ChatSettings | None:
     """Get a user's settings row for a chat.
 
     Args:
@@ -41,7 +43,7 @@ async def create_default(
     return settings
 
 
-async def update(
+async def update_chat_settings(
     db: AsyncSession, settings: ChatSettings, patch: dict[str, Any]
 ) -> ChatSettings:
     """Apply a partial update to a settings row.
