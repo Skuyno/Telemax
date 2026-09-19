@@ -36,7 +36,7 @@ async function onSubmit() {
     }
     await navigateTo('/')
   } catch (e) {
-    errorMessage.value = extractApiErrorMessage(
+    errorMessage.value = mapAuthErrorMessage(
       e,
       mode.value === 'login' ? 'Неверный логин или пароль' : 'Не удалось создать аккаунт',
     )
