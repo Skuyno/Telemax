@@ -16,6 +16,42 @@ from app.settings.models import ChatSettings
 from app.settings.schemas import ChatSettingsUpdateRequest
 
 
+async def _require_membership(db: AsyncSession, chat_id: UUID, user_id: UUID) -> None:
+    """Raise if the user is not a member of the chat.
+
+    Args:
+        db: Async database session.
+        chat_id: Id of the chat.
+        user_id: Id of the user.
+
+    Raises:
+        HTTPException: 403 if the user is not a member of the chat.
+    """
+    if not await chats_repository.is_user_in_chat(db, chat_id, user_id):
+        raise HTTPException(status_code=403, detail="not a user chat")
+
+
+async def _fetch_or_create(
+    db: AsyncSession, chat_id: UUID, user_id: UUID
+) -> ChatSettings:
+    """Fetch the settings row for a chat member, creating one on first access.
+
+    Assumes membership was already checked by the caller.
+
+    Args:
+        db: Async database session.
+        chat_id: Id of the chat.
+        user_id: Id of the user.
+
+    Returns:
+        ChatSettings: The user's settings for the chat.
+    """
+    settings = await settings_repository.get_chat_settings(db, chat_id, user_id)
+    if settings is None:
+        settings = await settings_repository.create_default(db, chat_id, user_id)
+    return settings
+
+
 async def get_or_create_settings(
     db: AsyncSession, chat_id: UUID, user_id: UUID
 ) -> ChatSettings:
@@ -32,13 +68,8 @@ async def get_or_create_settings(
     Raises:
         HTTPException: 403 if the user is not a member of the chat.
     """
-    if not await chats_repository.is_user_in_chat(db, chat_id, user_id):
-        raise HTTPException(status_code=403, detail="not a user chat")
-
-    settings = await settings_repository.get_chat_settings(db, chat_id, user_id)
-    if settings is None:
-        settings = await settings_repository.create_default(db, chat_id, user_id)
-    return settings
+    await _require_membership(db, chat_id, user_id)
+    return await _fetch_or_create(db, chat_id, user_id)
 
 
 async def update_settings(
@@ -48,6 +79,9 @@ async def update_settings(
     data: ChatSettingsUpdateRequest,
 ) -> ChatSettings:
     """Apply a partial update to a user's settings for a chat.
+
+    A settings row must exist before it can be patched, so this ensures one
+    (creating defaults on first write) rather than reusing the read path.
 
     Args:
         db: Async database session.
@@ -61,6 +95,7 @@ async def update_settings(
     Raises:
         HTTPException: 403 if the user is not a member of the chat.
     """
-    settings = await get_or_create_settings(db, chat_id, user_id)
+    await _require_membership(db, chat_id, user_id)
+    settings = await _fetch_or_create(db, chat_id, user_id)
     patch = data.model_dump(exclude_unset=True)
     return await settings_repository.update_chat_settings(db, settings, patch)
