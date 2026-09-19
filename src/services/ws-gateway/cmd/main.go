@@ -31,7 +31,7 @@ func main() {
 	hub := ws.NewHub(redisClient)
 	go hub.Run()
 
-	_, err = natsClient.SubscribeToMessages("chat.message.created", hub.BroadcastToUsers)
+	_, err = natsClient.SubscribeToMessagesWithRetry("chat.message.created", hub.BroadcastToUsers)
 	if err != nil {
 		log.Fatalf("Failed to subscribe to NATS: %v", err)
 	}

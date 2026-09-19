@@ -75,15 +75,31 @@ services:
         condition: service_healthy
       nats:
         condition: service_started
+      communication:
+        condition: service_healthy
   web:
     build: ../src/web
     container_name: web
     environment:
-      NUXT_PUBLIC_API_BASE: ${NUXT_PUBLIC_API_BASE:-http://localhost:8000}
-      NUXT_PUBLIC_WS_BASE: ${NUXT_PUBLIC_WS_BASE:-ws://localhost:4333}
-    ports:
-      - "3000:3000"
+      # Relative paths: web sits behind nginx on the same origin as
+      # api-gateway/ws-gateway, so browser requests are same-origin and
+      # never trigger CORS. Hardcoded on purpose (not ${VAR:-default}):
+      # a stray shell/.env NUXT_PUBLIC_API_BASE would otherwise silently
+      # override this and break the same-origin setup with no clear error.
+      # A local compose override needing a different value (e.g. hitting
+      # web directly, bypassing nginx) should set it explicitly too.
+      NUXT_PUBLIC_API_BASE: /api
+      NUXT_PUBLIC_WS_BASE: /ws
     depends_on:
+      - api-gateway
+      - ws-gateway
+  nginx:
+    build: ../src/services/nginx
+    container_name: nginx
+    ports:
+      - "80:80"
+    depends_on:
+      - web
       - api-gateway
       - ws-gateway
 
