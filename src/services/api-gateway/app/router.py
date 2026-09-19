@@ -71,7 +71,11 @@ async def proxy(
         upstream = await client.request(
             method=request.method,
             url=f"{target}/{path}",
-            params=request.query_params,
+            # Starlette's QueryParams.items() collapses repeated keys to the
+            # last value (plain Mapping semantics), and httpx treats a
+            # Mapping the same way. multi_items() keeps every pair, so
+            # "?ids=a&ids=b" is actually forwarded as both, not just "b".
+            params=request.query_params.multi_items(),
             content=await request.body(),
             headers=headers,
         )
