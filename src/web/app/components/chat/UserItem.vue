@@ -20,13 +20,12 @@ defineEmits<{ select: [] }>()
 .user {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   width: 100%;
-  padding: 9px 8px;
+  padding: 10px;
   background: none;
-  border: none;
-  border-left: 2px solid transparent;
-  border-radius: var(--radius);
+  border: 1px solid transparent;
+  border-radius: var(--chat-radius);
   text-align: left;
   cursor: pointer;
   transition: background 0.15s ease;
@@ -45,16 +44,16 @@ defineEmits<{ select: [] }>()
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 40px;
-  height: 40px;
+  width: 44px;
+  height: 44px;
   flex: none;
   background: var(--color-surface);
   border: 1px solid var(--chat-line);
-  border-radius: var(--radius);
+  border-radius: var(--chat-radius);
   font-family: var(--font-heading);
   font-weight: 600;
-  font-size: 12px;
-  color: var(--color-text-muted);
+  font-size: 13px;
+  color: var(--color-accent);
 }
 
 .user__body {

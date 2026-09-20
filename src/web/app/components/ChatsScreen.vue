@@ -87,5 +87,12 @@ const showDialog = computed(() => !isNarrow.value || showDialogOnNarrow.value)
   --chat-line: rgba(61, 79, 156, 0.6);
   --chat-line-soft: rgba(61, 79, 156, 0.5);
   --chat-accent-soft: rgba(255, 204, 46, 0.45);
+  /* Скругления только внутри экрана чатов — глобальный --radius остаётся нулевым. */
+  --chat-radius: 10px;
+  --chat-radius-lg: 14px;
+  /* Та же сетка, что на странице входа. */
+  --chat-grid:
+    linear-gradient(to right, rgba(120, 150, 255, 0.06) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(120, 150, 255, 0.06) 1px, transparent 1px);
 }
 </style>
