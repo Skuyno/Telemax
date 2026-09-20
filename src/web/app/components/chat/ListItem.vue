@@ -34,16 +34,17 @@ const preview = computed(() => {
 .row {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   width: 100%;
-  padding: 9px 8px;
+  padding: 10px;
   background: none;
-  border: none;
-  border-left: 2px solid transparent;
-  border-radius: var(--radius);
+  border: 1px solid transparent;
+  border-radius: var(--chat-radius);
   text-align: left;
   cursor: pointer;
-  transition: background 0.15s ease;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease;
 }
 
 .row:hover {
@@ -52,34 +53,33 @@ const preview = computed(() => {
 
 .row.is-active {
   background: var(--color-surface);
-  border-left-color: var(--color-accent);
+  border-color: var(--chat-line);
 }
 
 .row__avatar {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 40px;
-  height: 40px;
+  width: 44px;
+  height: 44px;
   flex: none;
   background: var(--color-surface);
   border: 1px solid var(--chat-line);
-  border-radius: var(--radius);
+  border-radius: var(--chat-radius);
   font-family: var(--font-heading);
   font-weight: 600;
-  font-size: 12px;
-  color: var(--color-text-muted);
+  font-size: 13px;
+  color: var(--color-accent);
 }
 
 .row.is-active .row__avatar {
   border-color: var(--chat-accent-soft);
-  color: var(--color-text);
 }
 
 .row__body {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 4px;
   min-width: 0;
   flex: 1;
 }

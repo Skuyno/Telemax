@@ -31,7 +31,9 @@ const chatStore = useChatStore()
   flex: 1;
   min-width: 0;
   padding: 24px;
-  background: var(--color-ground);
+  background-color: var(--color-ground);
+  background-image: var(--chat-grid);
+  background-size: 48px 48px;
 }
 
 .empty__title {
@@ -58,8 +60,7 @@ const chatStore = useChatStore()
   padding: 11px 18px;
   background: var(--color-accent);
   border: none;
-  border-radius: var(--radius);
-  box-shadow: 3px 3px 0 var(--color-ink);
+  border-radius: var(--chat-radius);
   font-family: var(--font-display);
   font-weight: 700;
   font-size: 10px;
