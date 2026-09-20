@@ -35,7 +35,7 @@ def resolve_target(path: str) -> str:
 
 
 @router.api_route(
-    "/{path:path}", methods=["GET", "POST", "PATCH"], include_in_schema=False
+    "/{path:path}", methods=["GET", "POST", "PATCH", "DELETE"], include_in_schema=False
 )
 async def proxy(
     path: str,
