@@ -21,6 +21,9 @@ const (
 	subjectMessageDeleted = "chat.message.deleted"
 	subjectMessageRead    = "chat.message.read"
 	subjectTyping         = "chat.message.typing"
+
+	subjectUploadProgress  = "file.upload.progress"
+	subjectUploadCompleted = "file.upload.completed"
 )
 
 // InboundEvent is a superset of the fields any chat.message.* event from
@@ -36,6 +39,11 @@ type InboundEvent struct {
 	CreatedAt         string   `json:"created_at"`
 	EditedAt          string   `json:"edited_at"`
 	LastReadMessageID string   `json:"last_read_message_id"`
+
+	FileID        string `json:"file_id"`
+	UploaderID    string `json:"uploader_id"`
+	BytesUploaded int64  `json:"bytes_uploaded"`
+	SizeBytes     *int64 `json:"size_bytes"`
 }
 
 type MessageData struct {
@@ -62,6 +70,21 @@ type MessageReadData struct {
 type TypingData struct {
 	ChatID string `json:"chat_id"`
 	UserID string `json:"user_id"`
+}
+
+type UploadProgressData struct {
+	FileID        string `json:"file_id"`
+	ChatID        string `json:"chat_id"`
+	UploaderID    string `json:"uploader_id"`
+	BytesUploaded int64  `json:"bytes_uploaded"`
+	SizeBytes     *int64 `json:"size_bytes"`
+}
+
+type UploadCompletedData struct {
+	FileID     string `json:"file_id"`
+	ChatID     string `json:"chat_id"`
+	UploaderID string `json:"uploader_id"`
+	SizeBytes  int64  `json:"size_bytes"`
 }
 
 // OutboundEvent is the envelope every WebSocket client receives, regardless
@@ -218,6 +241,31 @@ func buildOutboundEvent(subject string, event InboundEvent) (OutboundEvent, bool
 			Data: TypingData{
 				ChatID: event.ChatID,
 				UserID: event.UserID,
+			},
+		}, true
+	case subjectUploadProgress:
+		return OutboundEvent{
+			Type: "upload.progress",
+			Data: UploadProgressData{
+				FileID:        event.FileID,
+				ChatID:        event.ChatID,
+				UploaderID:    event.UploaderID,
+				BytesUploaded: event.BytesUploaded,
+				SizeBytes:     event.SizeBytes,
+			},
+		}, true
+	case subjectUploadCompleted:
+		var sizeBytes int64
+		if event.SizeBytes != nil {
+			sizeBytes = *event.SizeBytes
+		}
+		return OutboundEvent{
+			Type: "upload.completed",
+			Data: UploadCompletedData{
+				FileID:     event.FileID,
+				ChatID:     event.ChatID,
+				UploaderID: event.UploaderID,
+				SizeBytes:  sizeBytes,
 			},
 		}, true
 	default:

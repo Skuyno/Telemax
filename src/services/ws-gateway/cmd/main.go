@@ -37,6 +37,12 @@ func main() {
 	}
 	log.Println("Subscribed to chat.message.*")
 
+	_, err = natsClient.SubscribeToMessagesWithRetry("file.upload.*", hub.HandleNatsEvent)
+	if err != nil {
+		log.Fatalf("Failed to subscribe to NATS: %v", err)
+	}
+	log.Println("Subscribed to file.upload.*")
+
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("ok"))
