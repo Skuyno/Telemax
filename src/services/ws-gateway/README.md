@@ -21,22 +21,17 @@ internal/ws/         WebSocket-клиент и реестр соединений
 
 При подключении принимается только валидный access JWT, подписанный HS256. Идентификатор пользователя берётся из `sub`.
 
-Gateway подписан на `chat.message.created`. Поле `recipient_ids` определяет получателей, но клиенту уходит **не** исходный JSON события из NATS — `internal/ws/hub.go` (`BroadcastToUsers`) заворачивает его в отдельный конверт:
+Gateway подписан на `chat.message.*` (весь wildcard, не только `created`). Поле `recipient_ids` в событии определяет получателей, но клиенту уходит **не** исходный JSON события из NATS — `internal/ws/hub.go` (`HandleNatsEvent` → `buildOutboundEvent`) смотрит на subject и заворачивает событие в конверт `{type, data}` под конкретный случай:
 
-```json
-{
-  "type": "message.created",
-  "data": {
-    "message_id": "...",
-    "chat_id": "...",
-    "sender_id": "...",
-    "body": "...",
-    "created_at": "..."
-  }
-}
-```
+| Subject | `type` в конверте | `data` |
+|---|---|---|
+| `chat.message.created` | `message.created` | `message_id, chat_id, sender_id, body, created_at` |
+| `chat.message.updated` | `message.updated` | то же + `edited_at` |
+| `chat.message.deleted` | `message.deleted` | `message_id, chat_id, sender_id` (тело уже не передаётся) |
+| `chat.message.read` | `message.read` | `chat_id, user_id, last_read_message_id` |
+| `chat.message.typing` | `typing` | `chat_id, user_id` |
 
-Обратите внимание: id сообщения здесь называется **`message_id`**, а не `id`, как в REST-ответах `/chats/{id}/messages` — это разные поля с одним и тем же смыслом, маппить их придётся отдельно.
+Обратите внимание: id сообщения в конверте называется **`message_id`**, а не `id`, как в REST-ответах `/chats/{id}/messages` — это разные поля с одним и тем же смыслом, маппить их придётся отдельно.
 
 Входящие от клиента сообщения по WebSocket **полностью игнорируются** (`ReadPump` в `internal/ws/client.go` только читает и отбрасывает — обработчика нет): WebSocket используется исключительно для доставки от сервера клиенту, отправка нового сообщения всегда идёт через REST (`POST /chats/{id}/messages`).
 

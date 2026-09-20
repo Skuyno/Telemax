@@ -1,6 +1,6 @@
 """Data access layer for users."""
 
-from typing import Sequence
+from typing import Any, Sequence
 from uuid import UUID
 
 from sqlalchemy import or_, select
@@ -38,6 +38,23 @@ async def get_user_by_username(db: AsyncSession, username: str) -> User | None:
     """
     result = await db.execute(select(User).where(User.username == username))
     return result.scalar_one_or_none()
+
+
+async def update_user(db: AsyncSession, user: User, patch: dict[str, Any]) -> User:
+    """Apply a partial update to a user row.
+
+    Args:
+        db: Async database session.
+        user: The user row to update.
+        patch: Fields to update, already filtered to explicitly set values.
+
+    Returns:
+        User: The updated user.
+    """
+    for field, value in patch.items():
+        setattr(user, field, value)
+    await db.commit()
+    return user
 
 
 async def get_user_by_id(db: AsyncSession, user_id: UUID) -> User | None:

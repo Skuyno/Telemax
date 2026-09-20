@@ -36,11 +36,13 @@ func New(natsUrl string) (*Client, error) {
 	}, nil
 }
 
-func (c *Client) SubscribeToMessages(subject string, handler func(data []byte)) (*nats.Subscription, error) {
+func (c *Client) SubscribeToMessages(
+	subject string, handler func(subject string, data []byte),
+) (*nats.Subscription, error) {
 	sub, err := c.js.Subscribe(subject, func(msg *nats.Msg) {
 		log.Printf("Received NATS message on %s", msg.Subject)
 
-		handler(msg.Data)
+		handler(msg.Subject, msg.Data)
 
 		msg.Ack()
 	})
@@ -58,7 +60,7 @@ func (c *Client) SubscribeToMessages(subject string, handler func(data []byte)) 
 // start of the whole stack ws-gateway can come up first and hit a normal,
 // expected race rather than a real failure.
 func (c *Client) SubscribeToMessagesWithRetry(
-	subject string, handler func(data []byte),
+	subject string, handler func(subject string, data []byte),
 ) (*nats.Subscription, error) {
 	var lastErr error
 	for attempt := 1; attempt <= subscribeMaxAttempts; attempt++ {

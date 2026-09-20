@@ -32,12 +32,16 @@ class NatsClient:
         self.nc = await nats.connect(url)
         self.js = self.nc.jetstream()
 
+        subjects = ["chat.message.>", "file.upload.>"]
         try:
-            await self.js.add_stream(name="CHATS", subjects=["chat.message.>"])
+            await self.js.add_stream(name="CHATS", subjects=subjects)
             logger.info("Created JetStream stream 'CHATS'")
         except APIError as e:
             if "already in use" in str(e).lower() or e.err_code == 10058:
-                logger.info("JetStream stream 'CHATS' already exists")
+                # Stream already exists (created by us or file-orchestrator on
+                # a previous boot) — make sure its subject list is current.
+                await self.js.update_stream(name="CHATS", subjects=subjects)
+                logger.info("JetStream stream 'CHATS' exists, subjects refreshed")
             else:
                 logger.error("Failed to create stream 'CHATS': %s", e)
                 raise e

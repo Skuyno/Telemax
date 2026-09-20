@@ -25,19 +25,26 @@ tests/         интеграционные тесты чатов и истор�
 | `GET /chats/{id}/members` | Получить участников диалога |
 | `POST /chats/{id}/messages` | Сохранить и отправить сообщение |
 | `GET /chats/{id}/messages` | Получить историю с курсором `before_msg_id` |
+| `PATCH /chats/{id}/messages/{message_id}` | Отредактировать своё сообщение |
+| `DELETE /chats/{id}/messages/{message_id}` | Удалить своё сообщение (soft delete, тело очищается) |
+| `GET /chats/{id}/messages/search` | Поиск по тексту сообщений в чате (`query`, обязательный `limit`) |
+| `POST /chats/{id}/typing` | Сообщить собеседникам «печатает…» (эфемерно, ничего не сохраняется) |
+| `POST /chats/{id}/read` | Отметить чат прочитанным до сообщения `last_read_message_id` |
 | `GET /chats/{id}/settings` | Получить настройки чата для текущего пользователя |
 | `PATCH /chats/{id}/settings` | Изменить настройки чата (например, `notifications_muted`) |
 | `GET /health/db` | Проверить подключение к БД |
+
+`GET /chats` теперь также отдаёт `unread_count` на каждый чат — число сообщений от собеседника, отправленных позже вашего последнего `POST /chats/{id}/read`.
 
 Точные схемы доступны по `/docs` и `/openapi.json`. Все пользовательские маршруты ожидают внутренний заголовок `X-User-Id` от API Gateway.
 
 ## Взаимодействия
 
-- **PostgreSQL** хранит `chats`, `chat_members`, `direct_chats`, `messages` и `chat_settings`.
+- **PostgreSQL** хранит `chats`, `chat_members`, `direct_chats`, `messages`, `chat_read_states` и `chat_settings`.
 - **Identity Service** проверяет существование второго участника при создании диалога.
-- **NATS JetStream** получает событие `chat.message.created` после сохранения сообщения.
+- **NATS JetStream** (стрим `CHATS`, `chat.message.>`) получает события `chat.message.created`, `chat.message.updated`, `chat.message.deleted`, `chat.message.read` и `chat.message.typing`.
 
-Событие содержит `id`, `chat_id`, `sender_id`, `recipient_ids`, `body` и `created_at`. Сейчас WS Gateway передаёт этот JSON клиенту без преобразования.
+Все события несут `chat_id` и `recipient_ids` (кому доставить); конкретные поля зависят от типа (`id`/`body`/`created_at` для created/updated, `last_read_message_id` для read и т.д.) — точный набор полей на конкретный subject смотрите в `app/chats/service.py`. **WS Gateway не пересылает эти события как есть** — `internal/ws/hub.go` разбирает subject и заворачивает каждое в свой конверт `{type, data}` для клиента; см. README `ws-gateway`.
 
 Повторный запрос с тем же сочетанием `sender_id + client_msg_id` возвращает существующее сообщение. Сначала выполняется commit в PostgreSQL, затем публикация в NATS; эти операции не образуют общую транзакцию.
 

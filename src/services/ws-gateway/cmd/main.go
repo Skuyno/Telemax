@@ -31,11 +31,17 @@ func main() {
 	hub := ws.NewHub(redisClient)
 	go hub.Run()
 
-	_, err = natsClient.SubscribeToMessagesWithRetry("chat.message.created", hub.BroadcastToUsers)
+	_, err = natsClient.SubscribeToMessagesWithRetry("chat.message.*", hub.HandleNatsEvent)
 	if err != nil {
 		log.Fatalf("Failed to subscribe to NATS: %v", err)
 	}
-	log.Println("Subscribed to chat.message.created")
+	log.Println("Subscribed to chat.message.*")
+
+	_, err = natsClient.SubscribeToMessagesWithRetry("file.upload.*", hub.HandleNatsEvent)
+	if err != nil {
+		log.Fatalf("Failed to subscribe to NATS: %v", err)
+	}
+	log.Println("Subscribed to file.upload.*")
 
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)

@@ -33,12 +33,26 @@ services:
       timeout: 3s
       retries: 5
     restart: unless-stopped
+  seaweedfs:
+    image: chrislusf/seaweedfs
+    container_name: seaweedfs
+    command: "server -dir=/data -filer -master.volumeSizeLimitMB=1024"
+    volumes:
+      - seaweedfs_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8888/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
   identity:
     build: ../src/services/identity
     container_name: identity
     env_file: ../src/services/identity/.env
     depends_on:
       db:
+        condition: service_healthy
+      seaweedfs:
         condition: service_healthy
     healthcheck:
       test: [ "CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health/db')\"" ]
@@ -57,6 +71,27 @@ services:
         condition: service_healthy
       communication:
         condition: service_healthy
+      file-orchestrator:
+        condition: service_healthy
+  file-orchestrator:
+    build: ../src/services/file-orchestrator
+    container_name: file-orchestrator
+    env_file: ../src/services/file-orchestrator/.env
+    depends_on:
+      db:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+      seaweedfs:
+        condition: service_healthy
+      communication:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health/db')\"" ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
   communication:
     build: ../src/services/communication
     container_name: communication
@@ -113,3 +148,4 @@ services:
 
 volumes:
   pgdata:
+  seaweedfs_data:
