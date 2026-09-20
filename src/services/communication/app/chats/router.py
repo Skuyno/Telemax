@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.chats import service as chats_service
+from app.chats.models import Message
 from app.chats.schemas import (
     ChatMembersResponse,
     ChatResponse,
@@ -19,6 +20,18 @@ from app.chats.schemas import (
 from app.dependencies import get_async_db, get_current_user_id
 
 router = APIRouter(prefix="/chats")
+
+
+def _to_message_response(msg: Message, attachment_ids: list[UUID]) -> MessageResponse:
+    """Build a MessageResponse from an ORM row plus its attachment ids.
+
+    Message doesn't carry attachments as an ORM relationship (this codebase
+    keeps cross-concern data as plain lookups, not relationships), so the
+    ids are always merged in explicitly at this boundary.
+    """
+    response = MessageResponse.model_validate(msg)
+    response.attachment_file_ids = attachment_ids
+    return response
 
 
 @router.post("/direct", status_code=201, tags=["Chats"])
@@ -116,7 +129,8 @@ async def send_message(
         creation timestamp
     """
     msg = await chats_service.send_message(db, chat_id, user_id, data)
-    return MessageResponse.model_validate(msg)
+    attachment_ids = await chats_service.get_attachment_ids(db, msg.id)
+    return _to_message_response(msg, attachment_ids)
 
 
 @router.get("/{chat_id}/messages", tags=["Messages"])
@@ -142,8 +156,14 @@ async def get_chat_messages(
     msgs = await chats_service.get_chat_messages(
         db, chat_id, user_id, limit, before_msg_id
     )
+    attachments_by_message = await chats_service.get_attachment_ids_bulk(
+        db, [msg.id for msg in msgs]
+    )
 
-    return [MessageResponse.model_validate(msg) for msg in msgs]
+    return [
+        _to_message_response(msg, attachments_by_message.get(msg.id, []))
+        for msg in msgs
+    ]
 
 
 @router.get("/{chat_id}/messages/search", tags=["Messages"])
@@ -167,7 +187,14 @@ async def search_messages(
         list[MessageResponse]: Matching messages, newest first.
     """
     msgs = await chats_service.search_messages(db, chat_id, user_id, query, limit)
-    return [MessageResponse.model_validate(msg) for msg in msgs]
+    attachments_by_message = await chats_service.get_attachment_ids_bulk(
+        db, [msg.id for msg in msgs]
+    )
+
+    return [
+        _to_message_response(msg, attachments_by_message.get(msg.id, []))
+        for msg in msgs
+    ]
 
 
 @router.patch("/{chat_id}/messages/{message_id}", tags=["Messages"])
@@ -191,7 +218,8 @@ async def edit_message(
         MessageResponse: The updated message.
     """
     msg = await chats_service.edit_message(db, chat_id, message_id, user_id, data.body)
-    return MessageResponse.model_validate(msg)
+    attachment_ids = await chats_service.get_attachment_ids(db, msg.id)
+    return _to_message_response(msg, attachment_ids)
 
 
 @router.delete("/{chat_id}/messages/{message_id}", status_code=204, tags=["Messages"])

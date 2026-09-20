@@ -53,6 +53,37 @@ async def _get_recipient_ids(
     return [str(m.user_id) for m in members if m.user_id != exclude_user_id]
 
 
+async def _validate_attachments(
+    chat_id: UUID, file_ids: Sequence[UUID]
+) -> None:
+    """Verify a set of file ids are ready and belong to this chat.
+
+    Delegates to file-orchestrator, the source of truth for files — this
+    service only stores the association, not the files themselves.
+
+    Args:
+        chat_id: Id of the chat the message is being sent to.
+        file_ids: Ids of files the client wants to attach.
+
+    Raises:
+        HTTPException: 400 if any file id isn't a ready, valid attachment
+            for this chat.
+    """
+    if not file_ids:
+        return
+
+    async with httpx.AsyncClient() as client:
+        response = await client.post(
+            f"{settings.file_orchestrator_url}/internal/files/validate",
+            json={"chat_id": str(chat_id), "file_ids": [str(fid) for fid in file_ids]},
+        )
+    response.raise_for_status()
+    valid_ids = {UUID(fid) for fid in response.json()["valid_file_ids"]}
+
+    if not set(file_ids).issubset(valid_ids):
+        raise HTTPException(status_code=400, detail="invalid attachment file id")
+
+
 async def get_or_create_direct_chat(
     db: AsyncSession, user_id: UUID, data: CreateDirectChatRequest
 ) -> tuple[Chat, bool]:
@@ -157,8 +188,9 @@ async def send_message(
         HTTPException: 403 if the sender is not a member of the chat.
     """
     await _require_membership(db, chat_id, user_id)
+    await _validate_attachments(chat_id, data.attachment_file_ids)
 
-    msg = await chats_repository.create_message(
+    msg, created = await chats_repository.create_message(
         db, chat_id, user_id, data.body, data.client_msg_id
     )
 
@@ -167,6 +199,12 @@ async def send_message(
             status_code=409,
             detail="client_msg_id already used for a different chat or message body",
         )
+
+    # Only on first creation: a retried request with the same client_msg_id
+    # returns the existing row, and re-inserting the same attachment links
+    # would violate their composite primary key.
+    if created:
+        await chats_repository.add_attachments(db, msg.id, data.attachment_file_ids)
 
     recipient_ids = await _get_recipient_ids(db, chat_id)
 
@@ -178,6 +216,7 @@ async def send_message(
             "sender_id": str(msg.sender_id),
             "recipient_ids": recipient_ids,
             "body": msg.body,
+            "attachment_file_ids": [str(fid) for fid in data.attachment_file_ids],
             "created_at": msg.created_at.isoformat(),
         },
     )
@@ -314,6 +353,7 @@ async def delete_message(
     """
     await _require_membership(db, chat_id, user_id)
     message = await _get_owned_message(db, chat_id, message_id, user_id)
+    attachment_ids = await chats_repository.get_attachment_ids(db, message_id)
     message = await chats_repository.soft_delete_message(db, message)
 
     recipient_ids = await _get_recipient_ids(db, chat_id, exclude_user_id=user_id)
@@ -324,6 +364,9 @@ async def delete_message(
             "chat_id": str(message.chat_id),
             "sender_id": str(message.sender_id),
             "recipient_ids": recipient_ids,
+            # file-orchestrator subscribes to the same subject to delete the
+            # underlying blobs; ws-gateway ignores this field.
+            "attachment_file_ids": [str(fid) for fid in attachment_ids],
         },
     )
     return message
@@ -412,6 +455,34 @@ async def mark_chat_read(
             "recipient_ids": recipient_ids,
         },
     )
+
+
+async def get_attachment_ids(db: AsyncSession, message_id: UUID) -> list[UUID]:
+    """Get the attachment file ids for a single message.
+
+    Args:
+        db: Async database session.
+        message_id: Id of the message.
+
+    Returns:
+        list[UUID]: Ids of attached files.
+    """
+    return await chats_repository.get_attachment_ids(db, message_id)
+
+
+async def get_attachment_ids_bulk(
+    db: AsyncSession, message_ids: Sequence[UUID]
+) -> dict[UUID, list[UUID]]:
+    """Get attachment file ids for a batch of messages.
+
+    Args:
+        db: Async database session.
+        message_ids: Ids of messages to look up attachments for.
+
+    Returns:
+        dict[UUID, list[UUID]]: Attachment file ids per message id.
+    """
+    return await chats_repository.get_attachment_ids_bulk(db, message_ids)
 
 
 async def get_unread_counts(

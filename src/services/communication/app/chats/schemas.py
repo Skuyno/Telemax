@@ -55,6 +55,7 @@ class SendMessageRequest(BaseModel):
 
     body: str
     client_msg_id: UUID
+    attachment_file_ids: list[UUID] = Field(default_factory=list)
 
 
 class EditMessageRequest(BaseModel):
@@ -81,3 +82,4 @@ class MessageResponse(BaseModel):
     edited_at: datetime | None
     is_deleted: bool
     created_at: datetime
+    attachment_file_ids: list[UUID] = Field(default_factory=list)

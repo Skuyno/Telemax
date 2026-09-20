@@ -67,6 +67,23 @@ class Message(Base):
     )
 
 
+class MessageAttachment(Base):
+    """A file (from file-orchestrator) attached to a message.
+
+    file_id isn't a real foreign key — it points to a row in
+    file-orchestrator's own database, a different service entirely.
+    Same treatment as sender_id/created_by: a plain UUID column, not an
+    FK, since cross-service references can't be enforced at the DB level.
+    """
+
+    __tablename__ = "message_attachments"
+
+    message_id: Mapped[UUID] = mapped_column(
+        ForeignKey("messages.id"), primary_key=True
+    )
+    file_id: Mapped[UUID] = mapped_column(primary_key=True)
+
+
 class ChatReadState(Base):
     """How far a user has read into a chat, for unread counts and receipts."""
 
