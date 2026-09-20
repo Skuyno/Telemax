@@ -5,10 +5,11 @@ import (
 )
 
 type Config struct {
-	JwtSecret string
-	NatsUrl   string
-	Redis     string
-	Port      string
+	JwtSecret        string
+	NatsUrl          string
+	Redis            string
+	CommunicationURL string
+	Port             string
 }
 
 func New() *Config {
@@ -16,7 +17,11 @@ func New() *Config {
 		JwtSecret: mustGetEnv("JWT_SECRET"),
 		NatsUrl:   getEnv("NATS_URL", "nats://nats:4222"),
 		Redis:     getEnv("REDIS_URL", "redis:6379"),
-		Port:      getEnv("PORT", "8080"),
+		CommunicationURL: getEnv(
+			"COMMUNICATION_URL",
+			"http://communication:8000",
+		),
+		Port: getEnv("PORT", "8080"),
 	}
 }
 
