@@ -14,7 +14,9 @@ PUBLIC_PATHS = {"auth/register", "auth/login", "auth/refresh"}
 
 # Forwarded as-is when present; everything else (Authorization included) is
 # replaced by our own X-User-Id, not passed through to upstream services.
-FORWARDED_REQUEST_HEADERS = ("content-type", "content-length")
+# x-filename carries the original filename for raw (non-multipart) file
+# uploads to file-orchestrator, which has no other way to receive it.
+FORWARDED_REQUEST_HEADERS = ("content-type", "content-length", "x-filename")
 
 router = APIRouter()
 
@@ -44,7 +46,9 @@ def resolve_target(path: str) -> str:
 
 
 @router.api_route(
-    "/{path:path}", methods=["GET", "POST", "PATCH", "DELETE"], include_in_schema=False
+    "/{path:path}",
+    methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
+    include_in_schema=False,
 )
 async def proxy(
     path: str,
