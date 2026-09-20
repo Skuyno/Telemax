@@ -3,11 +3,17 @@
 from typing import Sequence
 from uuid import UUID
 
+from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.users import repository as users_repository
 from app.users.models import User
-from app.users.schemas import LoginRequest, RegisterRequest
+from app.users.schemas import (
+    ChangePasswordRequest,
+    LoginRequest,
+    RegisterRequest,
+    UpdateProfileRequest,
+)
 from app.users.security import hash_password, verify_password
 
 _DUMMY_HASH = hash_password("dummy-password-for-timing")
@@ -57,6 +63,53 @@ async def get_user_profile(db: AsyncSession, data: UUID) -> User | None:
     if user:
         return user
     return None
+
+
+async def update_profile(
+    db: AsyncSession, user: User, data: UpdateProfileRequest
+) -> User:
+    """Apply a partial update to a user's own profile.
+
+    Args:
+        db: Async database session.
+        user: The user to update.
+        data: Fields to update; fields left unset are unchanged.
+
+    Returns:
+        User: The updated user.
+    """
+    patch = data.model_dump(exclude_unset=True)
+    return await users_repository.update_user(db, user, patch)
+
+
+async def change_password(
+    db: AsyncSession, user: User, data: ChangePasswordRequest
+) -> None:
+    """Change a user's own password after verifying the current one.
+
+    Bumps `token_version`, which invalidates every refresh token issued
+    before the change — the closest thing to a "log out other sessions"
+    this service has, and exactly what `token_version` was added for.
+
+    Args:
+        db: Async database session.
+        user: The user changing their password.
+        data: Current and new password.
+
+    Raises:
+        HTTPException: 401 if the current password doesn't match.
+    """
+    if not verify_password(data.current_password, user.password_hash):
+        raise HTTPException(status_code=401, detail="Invalid current password")
+
+    await users_repository.update_user(
+        db,
+        user,
+        {
+            "password_hash": hash_password(data.new_password),
+            "token_version": user.token_version + 1,
+        },
+    )
 
 
 async def get_users_bulk(db: AsyncSession, user_ids: set[UUID]) -> Sequence[User]:

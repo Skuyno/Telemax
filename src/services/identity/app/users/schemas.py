@@ -1,9 +1,12 @@
 """Pydantic schemas for users."""
 
+import re
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+_EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
 class RegisterRequest(BaseModel):
@@ -51,7 +54,44 @@ class UserResponse(BaseModel):
     email: str | None
     phone: str | None
     display_name: str | None
+    avatar_url: str | None
     created_at: datetime
+
+
+class UpdateProfileRequest(BaseModel):
+    """Partial update of the current user's profile.
+
+    Fields left unset are unchanged. `avatar_url` isn't settable yet —
+    there's no file upload endpoint to produce one; the column exists so
+    the field is already wired through the API once uploads land.
+    """
+
+    display_name: str | None = Field(default=None, min_length=1, max_length=64)
+    email: str | None = Field(default=None, min_length=3, max_length=255)
+
+    @field_validator("email")
+    @classmethod
+    def _validate_email_shape(cls, value: str | None) -> str | None:
+        """Reject an email that doesn't look like one.
+
+        Raises:
+            ValueError: If the value doesn't match a basic `x@y.z` shape.
+        """
+        if value is not None and not _EMAIL_PATTERN.match(value):
+            raise ValueError("Invalid email format")
+        return value
+
+
+class ChangePasswordRequest(BaseModel):
+    """Request to change the current user's own password.
+
+    Requires the current password even though the caller is already
+    authenticated, so a stolen short-lived access token alone can't be
+    used to lock the real owner out of their account.
+    """
+
+    current_password: str = Field(max_length=256)
+    new_password: str = Field(min_length=8, max_length=256)
 
 
 class UserSearchRequest(BaseModel):

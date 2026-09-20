@@ -12,11 +12,13 @@ from app.config import settings
 from app.dependencies import get_async_db, get_current_user_id
 from app.users import service as users_service
 from app.users.schemas import (
+    ChangePasswordRequest,
     LoginRequest,
     RegisterRequest,
     RegisterResponse,
     TokenRequest,
     TokenResponse,
+    UpdateProfileRequest,
     UserResponse,
     UserSearchRequest,
 )
@@ -138,6 +140,65 @@ async def me(
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
     return UserResponse.model_validate(user)
+
+
+@router.patch("/me", tags=["Users"], response_model=UserResponse)
+async def update_me(
+    data: UpdateProfileRequest,
+    user_id: UUID = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_async_db),
+) -> UserResponse:
+    """Update the current user's profile (display name and/or email).
+
+    Args:
+        data: Fields to update; fields left unset are unchanged.
+        user_id: User id trusted from the X-User-Id header (set by API Gateway).
+        db: Async database session.
+
+    Returns:
+        UserResponse: The updated profile.
+
+    Raises:
+        HTTPException: 404 if the user no longer exists, 409 if the email
+            is already used by another account.
+    """
+    user = await users_service.get_user_profile(db, user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    try:
+        user = await users_service.update_profile(db, user, data)
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail="Email already in use")
+    return UserResponse.model_validate(user)
+
+
+@router.post("/me/password", status_code=204, tags=["Users"])
+async def change_my_password(
+    data: ChangePasswordRequest,
+    user_id: UUID = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_async_db),
+) -> None:
+    """Change the current user's own password.
+
+    Requires the current password. Invalidates existing refresh tokens
+    (bumps `token_version`) — other sessions will need to log in again.
+
+    Args:
+        data: Current and new password.
+        user_id: User id trusted from the X-User-Id header (set by API Gateway).
+        db: Async database session.
+
+    Raises:
+        HTTPException: 404 if the user no longer exists, 401 if the
+            current password doesn't match.
+    """
+    user = await users_service.get_user_profile(db, user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    await users_service.change_password(db, user, data)
 
 
 @router.get("/users", tags=["Users"])

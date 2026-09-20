@@ -21,6 +21,7 @@ class User(Base):
     phone: Mapped[str | None] = mapped_column(String(32))
     password_hash: Mapped[str] = mapped_column(String(255))
     display_name: Mapped[str | None] = mapped_column(String(64))
+    avatar_url: Mapped[str | None] = mapped_column(String(512))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
