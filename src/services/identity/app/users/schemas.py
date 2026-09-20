@@ -61,9 +61,9 @@ class UserResponse(BaseModel):
 class UpdateProfileRequest(BaseModel):
     """Partial update of the current user's profile.
 
-    Fields left unset are unchanged. `avatar_url` isn't settable yet —
-    there's no file upload endpoint to produce one; the column exists so
-    the field is already wired through the API once uploads land.
+    Fields left unset are unchanged. `avatar_url` isn't settable here —
+    it's only ever set by the dedicated avatar upload/delete endpoints
+    (`PUT`/`DELETE /me/avatar`), which also own the actual image blob.
     """
 
     display_name: str | None = Field(default=None, min_length=1, max_length=64)

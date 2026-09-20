@@ -4,13 +4,15 @@ import logging
 from uuid import UUID
 
 import jwt
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
+from fastapi.responses import StreamingResponse
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.dependencies import get_async_db, get_current_user_id
 from app.users import service as users_service
+from app.users import storage as avatar_storage
 from app.users.schemas import (
     ChangePasswordRequest,
     LoginRequest,
@@ -199,6 +201,92 @@ async def change_my_password(
         raise HTTPException(status_code=404, detail="User not found")
 
     await users_service.change_password(db, user, data)
+
+
+@router.put("/me/avatar", tags=["Users"], response_model=UserResponse)
+async def upload_my_avatar(
+    request: Request,
+    content_type: str = Header("application/octet-stream"),
+    content_length: int | None = Header(default=None),
+    user_id: UUID = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_async_db),
+) -> UserResponse:
+    """Upload (or replace) the current user's avatar image.
+
+    The request body is the raw image (no multipart), matching the same
+    streaming convention used by file-orchestrator for chat attachments.
+
+    Args:
+        request: Used to stream the raw request body.
+        content_type: MIME type of the image (must be jpeg/png/webp/gif).
+        content_length: Declared size, used only as an early size hint.
+        user_id: User id trusted from the X-User-Id header.
+        db: Async database session.
+
+    Returns:
+        UserResponse: The profile with its updated `avatar_url`.
+
+    Raises:
+        HTTPException: 404 if the user no longer exists.
+    """
+    user = await users_service.get_user_profile(db, user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    user = await users_service.upload_avatar(
+        db, user, content_type, content_length, request.stream()
+    )
+    return UserResponse.model_validate(user)
+
+
+@router.delete("/me/avatar", tags=["Users"], response_model=UserResponse)
+async def delete_my_avatar(
+    user_id: UUID = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_async_db),
+) -> UserResponse:
+    """Remove the current user's avatar, reverting to initials on the client.
+
+    Args:
+        user_id: User id trusted from the X-User-Id header.
+        db: Async database session.
+
+    Returns:
+        UserResponse: The profile with `avatar_url` cleared.
+
+    Raises:
+        HTTPException: 404 if the user no longer exists.
+    """
+    user = await users_service.get_user_profile(db, user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    user = await users_service.remove_avatar(db, user)
+    return UserResponse.model_validate(user)
+
+
+@router.get("/users/{user_id}/avatar", tags=["Users"])
+async def get_user_avatar(
+    user_id: UUID,
+    _: UUID = Depends(get_current_user_id),
+) -> StreamingResponse:
+    """Stream a user's avatar image, for display by any authenticated user.
+
+    Args:
+        user_id: Id of the user whose avatar to fetch.
+        _: Authenticated caller's own id (unused; any logged-in user may
+            view any avatar, same as the rest of the user directory).
+
+    Returns:
+        StreamingResponse: The avatar's bytes.
+
+    Raises:
+        HTTPException: 404 if the user has no avatar stored.
+    """
+    result = await avatar_storage.stream_avatar(str(user_id))
+    if result is None:
+        raise HTTPException(status_code=404, detail="No avatar set")
+    body, content_type = result
+    return StreamingResponse(body, media_type=content_type)
 
 
 @router.get("/users", tags=["Users"])
