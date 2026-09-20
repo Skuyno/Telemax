@@ -312,6 +312,54 @@
 
 ---
 
+## 2026-09-20 — Медиа-вложения: file-orchestrator, SeaweedFS, вложения в сообщениях
+
+По явному разрешению пользователя (разовое, на конкретный набор правок) добавлены два новых сервиса и доработан `communication`/`api-gateway`/`ws-gateway` для поддержки файлов в чатах.
+
+### api-gateway — потоковое проксирование
+
+Раньше `router.py` полностью буферизовал тело запроса (`await request.body()`) и ответа в памяти — несовместимо с загрузкой/отдачей больших файлов. Переписан на потоковую передачу: `request.stream()` как тело исходящего запроса, `StreamingResponse` поверх `upstream.aiter_bytes()` для ответа. Это касается **всех** проксируемых путей, не только файловых.
+
+### file-orchestrator (новый сервис)
+
+Хранит метаданные вложений (таблица `files`: `id, chat_id, uploader_id, original_filename, content_type, size_bytes, storage_key, status, created_at, updated_at, deleted_at`) — источник правды, сами байты лежат в SeaweedFS.
+
+- **Загрузка**: `POST /files?chat_id=...` с сырым телом (без multipart), метаданные — в заголовках `X-Filename`/`Content-Type`. Стримится напрямую в SeaweedFS filer (`PUT /attachments/{file_id}`). Раз в мегабайт (настраивается) публикует `file.upload.progress` в NATS; по завершении — `file.upload.completed`.
+- **Скачивание**: `GET /files/{id}` — file-orchestrator сам стримит байты из SeaweedFS обратно клиенту (осознанно выбран полный контроль над доступом, а не signed URL на сам SeaweedFS).
+- **Лимиты размера**: два уровня, действует более строгий — админский `max_upload_size_bytes` (по умолчанию `None` = не ограничено, задел под будущую админку) и физическое свободное место на диске SeaweedFS (`GET /status` на volume-сервере). Проверяется и по заявленному `Content-Length`, и по факту полученных байт по ходу стрима.
+- **Удаление**: подписка на `chat.message.deleted` (тот же NATS-subject, что слушает и публикует `communication`) — при удалении сообщения file-orchestrator удаляет блобы вложений и помечает файлы `deleted`.
+- **Авторизация**: и загрузка, и скачивание проверяют членство в чате через новый internal-эндпоинт `communication`: `GET /internal/chats/{chat_id}/members/{user_id}`. Для рассылки прогресса загрузки по WebSocket нужен список всех участников чата — добавлен `GET /internal/chats/{chat_id}/members` (без user_id), возвращает все `user_ids`.
+- **Валидация вложений**: `POST /internal/files/validate` — принимает `chat_id` + список `file_ids`, возвращает только те, что реально существуют, готовы (`status=ready`) и принадлежат этому чату. Вызывается из `communication` при отправке сообщения.
+
+### communication — вложения к сообщениям
+
+- Новая таблица `message_attachments` (`message_id`, `file_id` — составной PK, `file_id` **не** внешний ключ: указывает на строку в чужой БД file-orchestrator, тот же подход, что и у `sender_id`/`created_by`).
+- `SendMessageRequest`/`MessageResponse` получили `attachment_file_ids: list[UUID]` (можно приложить несколько файлов). Перед сохранением сообщения список валидируется через file-orchestrator (`_validate_attachments`), при невалидном id — `400`.
+- Важный нюанс: `create_message()` теперь возвращает `tuple[Message, bool]` (сообщение, было ли реально создано) — иначе повторная отправка с тем же `client_msg_id` (идемпотентность) попыталась бы второй раз вставить те же строки `message_attachments` и упала бы на дублировании composite PK.
+- При удалении сообщения (`delete_message`) id вложений попадают в payload события `chat.message.deleted` — их читает file-orchestrator для очистки блобов (ws-gateway это поле просто игнорирует).
+- JetStream-стрим `CHATS` теперь создаётся/обновляется с `subjects=["chat.message.>", "file.upload.>"]` — раньше файловые события в него бы просто не попадали (не матчились под фильтр). И `communication`, и `file-orchestrator` идемпотентно обеспечивают этот список при подключении (add_stream, а если уже существует — update_stream).
+- Заодно найден и исправлен реальный, ранее маскированный баг в `tests/conftest.py`: `async with AsyncMock() as x` не привязывает `x` к тому же моку, если явно не выставить `mock.__aenter__.return_value = mock` — раньше это молчаливо работало «случайно правильно» для одного из моков, но всплыло на новом тесте валидации вложений.
+
+### ws-gateway — трансляция прогресса загрузки
+
+Добавлена подписка на `file.upload.progress`/`file.upload.completed` (в дополнение к `chat.message.*`), с маппингом в WS-события `upload.progress`/`upload.completed`. Рассылка — тем же механизмом `recipient_ids`, что и для сообщений (recipient_ids теперь кладёт в payload сам file-orchestrator, получая список участников чата через internal-эндпоинт communication).
+
+### Инфраструктура
+
+- `deploy/docker-compose.yml`: добавлены сервисы `seaweedfs` (`chrislusf/seaweedfs`, единый combined-режим — master+volume+filer, без публичного порта) и `file-orchestrator` (build, зависит от `db`/`nats`/`seaweedfs`/`communication` healthy). `api-gateway` теперь дополнительно ждёт `file-orchestrator` healthy.
+- `.github/workflows/ci.yml`: добавлена джоба `test-file-orchestrator`, по образцу `test-identity`/`test-communication`.
+- Тесты: 3 новых теста для `file-orchestrator` (upload/download roundtrip, 404 на несуществующий файл, internal-валидация с учётом чата) — SeaweedFS-вызовы замоканы (in-memory блобы), НЕ реальный контейнер. 5 новых тестов для вложений в `communication` (отправка/список/невалидный id/идемпотентность/удаление публикует id вложений). Итого `communication`: 30/30, `file-orchestrator`: 3/3, всё через throwaway `postgres:17` в Docker + venv, как обычно.
+
+### Рекомендации для фронтенда (ветка ksenia)
+
+- **Отправка сообщения с вложением**: сначала `POST /api/files?chat_id=...` (сырое тело — файл как есть, БЕЗ multipart/FormData-обёртки; заголовки `X-Filename: <имя файла>`, `Content-Type: <mime>`) → в ответе `{ id, status: "ready", ... }`. Дальше этот `id` кладём в `attachment_file_ids` при `POST /api/chats/{id}/messages`. Можно приложить несколько файлов — просто несколько id в массиве.
+- **Прогресс загрузки для самого отправителя** — не ждите WebSocket, это чисто клиентская задача: используйте `XMLHttpRequest.upload.onprogress` (у `fetch` нативного progress на upload нет) — байты уже есть у браузера, лишний круг через бэкенд не нужен.
+- **Прогресс загрузки для остальных участников чата** — по WebSocket придут события `{ type: "upload.progress", data: { file_id, chat_id, uploader_id, bytes_uploaded, size_bytes } }` (size_bytes может быть `null`, если клиент не прислал `Content-Length`) и `{ type: "upload.completed", data: { file_id, chat_id, uploader_id, size_bytes } }`.
+- **Скачивание/отображение вложения**: `GET /api/files/{file_id}` — обычный поток байт с `Content-Type` и `Content-Disposition: attachment`. Для картинок можно просто использовать как `src` у `<img>` (браузер сам поставит `Authorization`, если это делает ваш `useApi`/axios-интерцептор — обычный `<img src>` заголовки не проставляет, так что для превью в чате, скорее всего, потребуется либо fetch+blob URL, либо отдельный неавторизованный путь в будущем).
+- Ограничение на размер файла на сервере есть, но по умолчанию не выставлено явно (кроме физического места на диске) — конкретное сообщение об ошибке `413`, текст на ваше усмотрение.
+
+---
+
 ## Правила, установленные пользователем по ходу работы
 
 - Работаем только над фронтендом (`src/web/`); бэкенд — только для изучения контрактов API, не редактируем без явного разового разрешения на конкретную правку.
