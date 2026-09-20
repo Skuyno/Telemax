@@ -1,13 +1,14 @@
 """Data access layer for chats."""
 
+from datetime import datetime, timezone
 from typing import Sequence
 from uuid import UUID
 
-from sqlalchemy import exists, select
+from sqlalchemy import exists, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.chats.models import Chat, ChatMember, DirectChat, Message
+from app.chats.models import Chat, ChatMember, ChatReadState, DirectChat, Message
 
 
 async def get_direct_chat(db: AsyncSession, user_a: UUID, user_b: UUID) -> Chat | None:
@@ -216,6 +217,167 @@ async def get_chat_messages(
 
     result = await db.execute(stmt)
     return result.scalars().all()
+
+
+async def get_message(
+    db: AsyncSession, chat_id: UUID, message_id: UUID
+) -> Message | None:
+    """Get a message by id, scoped to a chat.
+
+    Args:
+        db: Async database session.
+        chat_id: Id of the chat the message must belong to.
+        message_id: Id of the message.
+
+    Returns:
+        Message | None: The message if found in this chat, otherwise None.
+    """
+    result = await db.execute(
+        select(Message).where(Message.id == message_id, Message.chat_id == chat_id)
+    )
+    return result.scalar_one_or_none()
+
+
+async def update_message_body(db: AsyncSession, message: Message, body: str) -> Message:
+    """Update a message's text and stamp it as edited.
+
+    Args:
+        db: Async database session.
+        message: The message row to update.
+        body: New text content.
+
+    Returns:
+        Message: The updated message.
+    """
+    message.body = body
+    message.edited_at = datetime.now(timezone.utc)
+    await db.commit()
+    return message
+
+
+async def soft_delete_message(db: AsyncSession, message: Message) -> Message:
+    """Mark a message deleted and clear its text.
+
+    Args:
+        db: Async database session.
+        message: The message row to delete.
+
+    Returns:
+        Message: The updated (deleted) message.
+    """
+    message.is_deleted = True
+    message.body = ""
+    await db.commit()
+    return message
+
+
+async def search_messages(
+    db: AsyncSession, chat_id: UUID, query: str, limit: int
+) -> list[Message]:
+    """Search non-deleted messages in a chat by a case-insensitive substring.
+
+    Args:
+        db: Async database session.
+        chat_id: Id of the chat to search within.
+        query: Substring to match against the message body.
+        limit: Maximum number of rows to return.
+
+    Returns:
+        list[Message]: Matching messages, newest first, capped at limit.
+    """
+    stmt = (
+        select(Message)
+        .where(
+            Message.chat_id == chat_id,
+            Message.is_deleted.is_(False),
+            Message.body.ilike(f"%{query}%"),
+        )
+        .order_by(Message.created_at.desc())
+        .limit(limit)
+    )
+    result = await db.execute(stmt)
+    return result.scalars().all()
+
+
+async def get_read_state(
+    db: AsyncSession, chat_id: UUID, user_id: UUID
+) -> ChatReadState | None:
+    """Get a user's read state for a chat.
+
+    Args:
+        db: Async database session.
+        chat_id: Id of the chat.
+        user_id: Id of the user.
+
+    Returns:
+        ChatReadState | None: The read state if it exists, otherwise None.
+    """
+    return await db.get(ChatReadState, {"chat_id": chat_id, "user_id": user_id})
+
+
+async def set_read_state(
+    db: AsyncSession, chat_id: UUID, user_id: UUID, message_id: UUID
+) -> ChatReadState:
+    """Create or advance a user's read state for a chat.
+
+    Args:
+        db: Async database session.
+        chat_id: Id of the chat.
+        user_id: Id of the user marking it read.
+        message_id: Id of the last message read.
+
+    Returns:
+        ChatReadState: The updated (or created) read state.
+    """
+    state = await get_read_state(db, chat_id, user_id)
+    if state is None:
+        state = ChatReadState(chat_id=chat_id, user_id=user_id)
+        db.add(state)
+    state.last_read_message_id = message_id
+    state.last_read_at = datetime.now(timezone.utc)
+    await db.commit()
+    return state
+
+
+async def count_unread_bulk(
+    db: AsyncSession, user_id: UUID, chat_ids: Sequence[UUID]
+) -> dict[UUID, int]:
+    """Count unread messages per chat for a user in a single query.
+
+    A message counts as unread if it wasn't sent by this user and was
+    created after their last recorded read timestamp for that chat (or
+    every message from others counts if they've never read the chat).
+
+    Args:
+        db: Async database session.
+        user_id: Id of the user to count unread messages for.
+        chat_ids: Chats to compute unread counts for.
+
+    Returns:
+        dict[UUID, int]: Unread count per chat id; chats with zero unread
+        (including chats with no messages at all) are simply absent.
+    """
+    read_at_subquery = (
+        select(ChatReadState.last_read_at)
+        .where(
+            ChatReadState.chat_id == Message.chat_id,
+            ChatReadState.user_id == user_id,
+        )
+        .correlate(Message)
+        .scalar_subquery()
+    )
+    stmt = (
+        select(Message.chat_id, func.count())
+        .where(
+            Message.chat_id.in_(chat_ids),
+            Message.sender_id != user_id,
+            Message.is_deleted.is_(False),
+            or_(read_at_subquery.is_(None), Message.created_at > read_at_subquery),
+        )
+        .group_by(Message.chat_id)
+    )
+    result = await db.execute(stmt)
+    return dict(result.all())
 
 
 async def list_chat_peer_ids(

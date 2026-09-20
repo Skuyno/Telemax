@@ -11,6 +11,8 @@ from app.chats.schemas import (
     ChatResponse,
     CreateDirectChatRequest,
     CreateDirectChatResponse,
+    EditMessageRequest,
+    MarkChatReadRequest,
     MessageResponse,
     SendMessageRequest,
 )
@@ -59,12 +61,16 @@ async def list_user_chats(
         most recent message (null if none yet).
     """
     chats = await chats_service.list_user_chats(db, user_id)
-    last_messages = await chats_service.get_last_messages(
-        db, [chat.id for chat in chats]
-    )
+    chat_ids = [chat.id for chat in chats]
+    last_messages = await chats_service.get_last_messages(db, chat_ids)
+    unread_counts = await chats_service.get_unread_counts(db, user_id, chat_ids)
 
     return [
-        ChatResponse(id=chat.id, last_message=last_messages.get(chat.id))
+        ChatResponse(
+            id=chat.id,
+            last_message=last_messages.get(chat.id),
+            unread_count=unread_counts.get(chat.id, 0),
+        )
         for chat in chats
     ]
 
@@ -138,3 +144,103 @@ async def get_chat_messages(
     )
 
     return [MessageResponse.model_validate(msg) for msg in msgs]
+
+
+@router.get("/{chat_id}/messages/search", tags=["Messages"])
+async def search_messages(
+    chat_id: UUID,
+    query: str = Query(min_length=1),
+    limit: int = Query(gt=0),
+    user_id: UUID = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_async_db),
+) -> list[MessageResponse]:
+    """Search a chat's messages by a case-insensitive substring.
+
+    Args:
+        chat_id: Id of the chat to search within.
+        query: Substring to match against message text.
+        limit: Maximum number of results to return (required, no default).
+        user_id: User id trusted from the X-User-Id header.
+        db: Async database session.
+
+    Returns:
+        list[MessageResponse]: Matching messages, newest first.
+    """
+    msgs = await chats_service.search_messages(db, chat_id, user_id, query, limit)
+    return [MessageResponse.model_validate(msg) for msg in msgs]
+
+
+@router.patch("/{chat_id}/messages/{message_id}", tags=["Messages"])
+async def edit_message(
+    chat_id: UUID,
+    message_id: UUID,
+    data: EditMessageRequest,
+    user_id: UUID = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_async_db),
+) -> MessageResponse:
+    """Edit a message's text. Only the original sender may edit it.
+
+    Args:
+        chat_id: Id of the chat the message belongs to.
+        message_id: Id of the message to edit.
+        data: New text content.
+        user_id: User id trusted from the X-User-Id header.
+        db: Async database session.
+
+    Returns:
+        MessageResponse: The updated message.
+    """
+    msg = await chats_service.edit_message(db, chat_id, message_id, user_id, data.body)
+    return MessageResponse.model_validate(msg)
+
+
+@router.delete("/{chat_id}/messages/{message_id}", status_code=204, tags=["Messages"])
+async def delete_message(
+    chat_id: UUID,
+    message_id: UUID,
+    user_id: UUID = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_async_db),
+) -> None:
+    """Delete a message (soft delete). Only the original sender may delete it.
+
+    Args:
+        chat_id: Id of the chat the message belongs to.
+        message_id: Id of the message to delete.
+        user_id: User id trusted from the X-User-Id header.
+        db: Async database session.
+    """
+    await chats_service.delete_message(db, chat_id, message_id, user_id)
+
+
+@router.post("/{chat_id}/typing", status_code=204, tags=["Chats"])
+async def send_typing(
+    chat_id: UUID,
+    user_id: UUID = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_async_db),
+) -> None:
+    """Notify other chat members that the current user is typing.
+
+    Args:
+        chat_id: Id of the chat.
+        user_id: User id trusted from the X-User-Id header.
+        db: Async database session.
+    """
+    await chats_service.send_typing(db, chat_id, user_id)
+
+
+@router.post("/{chat_id}/read", status_code=204, tags=["Chats"])
+async def mark_chat_read(
+    chat_id: UUID,
+    data: MarkChatReadRequest,
+    user_id: UUID = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_async_db),
+) -> None:
+    """Mark a chat read up to (and including) a given message.
+
+    Args:
+        chat_id: Id of the chat.
+        data: Id of the last message read.
+        user_id: User id trusted from the X-User-Id header.
+        db: Async database session.
+    """
+    await chats_service.mark_chat_read(db, chat_id, user_id, data.last_read_message_id)
