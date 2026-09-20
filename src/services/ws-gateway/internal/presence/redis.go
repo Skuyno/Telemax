@@ -28,12 +28,41 @@ func New(redisURL string) (*Client, error) {
 	return &Client{rdb: rdb}, nil
 }
 
+func onlineKey(userID string) string {
+	return fmt.Sprintf("user:%s:online", userID)
+}
+
 func (c *Client) SetOnline(ctx context.Context, userID string, expiration time.Duration) error {
-	key := fmt.Sprintf("user:%s:online", userID)
-	return c.rdb.Set(ctx, key, "true", expiration).Err()
+	return c.rdb.Set(ctx, onlineKey(userID), "true", expiration).Err()
 }
 
 func (c *Client) SetOffline(ctx context.Context, userID string) error {
-	key := fmt.Sprintf("user:%s:online", userID)
-	return c.rdb.Del(ctx, key).Err()
+	return c.rdb.Del(ctx, onlineKey(userID)).Err()
+}
+
+func (c *Client) GetStatuses(
+	ctx context.Context,
+	userIDs []string,
+) (map[string]bool, error) {
+	statuses := make(map[string]bool, len(userIDs))
+	if len(userIDs) == 0 {
+		return statuses, nil
+	}
+
+	keys := make([]string, len(userIDs))
+	for i, userID := range userIDs {
+		keys[i] = onlineKey(userID)
+	}
+
+	values, err := c.rdb.MGet(ctx, keys...).Result()
+	if err != nil {
+		return nil, fmt.Errorf("get presence statuses: %w", err)
+	}
+
+	for i, userID := range userIDs {
+		value, ok := values[i].(string)
+		statuses[userID] = ok && value == "true"
+	}
+
+	return statuses, nil
 }

@@ -7,14 +7,17 @@ import (
 	"net/http"
 	"sync"
 	"time"
+	"ws-gateway/internal/communication"
 	"ws-gateway/internal/presence"
 
 	"github.com/gorilla/websocket"
 )
 
 const (
-	presenceTTL     = 70 * time.Second
-	presenceTimeout = 2 * time.Second
+	presenceTTL           = 70 * time.Second
+	presenceTimeout       = 2 * time.Second
+	presenceStatusOnline  = "online"
+	presenceStatusOffline = "offline"
 
 	subjectMessageCreated = "chat.message.created"
 	subjectMessageUpdated = "chat.message.updated"
@@ -94,23 +97,39 @@ type OutboundEvent struct {
 	Data interface{} `json:"data"`
 }
 
+type PresenceData struct {
+	UserID string `json:"user_id"`
+	Status string `json:"status"`
+}
+
+type PresenceEvent struct {
+	Type string       `json:"type"`
+	Data PresenceData `json:"data"`
+}
+
 type Hub struct {
-	presence *presence.Client
-	users    map[string]map[*Client]struct{}
-	mu       sync.RWMutex
+	presence            *presence.Client
+	communicationClient *communication.Client
+
+	users map[string]map[*Client]struct{}
+	mu    sync.RWMutex
 
 	register   chan *Client
 	unregister chan *Client
 	heartbeat  chan *Client
 }
 
-func NewHub(presenceClient *presence.Client) *Hub {
+func NewHub(
+	presenceClient *presence.Client,
+	communicationClient *communication.Client,
+) *Hub {
 	return &Hub{
-		presence:   presenceClient,
-		users:      make(map[string]map[*Client]struct{}),
-		register:   make(chan *Client),
-		unregister: make(chan *Client),
-		heartbeat:  make(chan *Client),
+		presence:            presenceClient,
+		communicationClient: communicationClient,
+		users:               make(map[string]map[*Client]struct{}),
+		register:            make(chan *Client),
+		unregister:          make(chan *Client),
+		heartbeat:           make(chan *Client),
 	}
 }
 
@@ -124,9 +143,16 @@ func (h *Hub) Run() {
 			}
 			h.users[client.userID][client] = struct{}{}
 			count := len(h.users[client.userID])
+			firstConnection := count == 1
 
 			h.mu.Unlock()
 			h.updatePresence(client.userID, true)
+			if firstConnection {
+				go h.broadcastPresence(client.userID)
+			}
+
+			go h.sendPresenceSnapshot(client)
+
 			log.Printf(
 				"Client connected: user=%s (total connections: %d)",
 				client.userID, count,
@@ -148,6 +174,7 @@ func (h *Hub) Run() {
 
 			if lastConnection {
 				h.updatePresence(client.userID, false)
+				go h.broadcastPresence(client.userID)
 			}
 			log.Printf("Client disconnected: user=%s", client.userID)
 		case client := <-h.heartbeat:
@@ -182,6 +209,138 @@ func (h *Hub) updatePresence(userID string, online bool) {
 			"Failed to update presence: user=%s online=%t error=%v",
 			userID, online, err,
 		)
+	}
+}
+
+func (h *Hub) sendToClient(client *Client, payload []byte) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	connections, ok := h.users[client.userID]
+	if !ok {
+		return
+	}
+
+	if _, connected := connections[client]; !connected {
+		return
+	}
+
+	select {
+	case client.send <- payload:
+	default:
+		log.Printf(
+			"Client buffer full, dropping event for user=%s",
+			client.userID,
+		)
+	}
+}
+
+func (h *Hub) sendPresenceSnapshot(client *Client) {
+	peersCtx, cancelPeers := context.WithTimeout(
+		context.Background(),
+		presenceTimeout,
+	)
+	peerIDs, err := h.communicationClient.GetChatPeerIDs(
+		peersCtx,
+		client.userID,
+	)
+	cancelPeers()
+
+	if err != nil {
+		log.Printf(
+			"Failed to get chat peers: user=%s error=%v",
+			client.userID,
+			err,
+		)
+		return
+	}
+
+	statusCtx, cancelStatuses := context.WithTimeout(
+		context.Background(),
+		presenceTimeout,
+	)
+	statuses, err := h.presence.GetStatuses(statusCtx, peerIDs)
+	cancelStatuses()
+
+	if err != nil {
+		log.Printf(
+			"Failed to get presence statuses: user=%s error=%v",
+			client.userID,
+			err,
+		)
+		return
+	}
+
+	for _, peerID := range peerIDs {
+		status := presenceStatusOffline
+		if statuses[peerID] {
+			status = presenceStatusOnline
+		}
+
+		payload, err := json.Marshal(PresenceEvent{
+			Type: "presence",
+			Data: PresenceData{
+				UserID: peerID,
+				Status: status,
+			},
+		})
+		if err != nil {
+			log.Printf("Failed to encode presence event: %v", err)
+			continue
+		}
+
+		h.sendToClient(client, payload)
+	}
+}
+
+func (h *Hub) broadcastPresence(userID string) {
+	ctx, cancel := context.WithTimeout(
+		context.Background(),
+		presenceTimeout,
+	)
+	peerIDs, err := h.communicationClient.GetChatPeerIDs(ctx, userID)
+	cancel()
+
+	if err != nil {
+		log.Printf(
+			"Failed to get chat peers for presence broadcast: user=%s error=%v",
+			userID,
+			err,
+		)
+		return
+	}
+
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	status := presenceStatusOffline
+	if len(h.users[userID]) > 0 {
+		status = presenceStatusOnline
+	}
+
+	payload, err := json.Marshal(PresenceEvent{
+		Type: "presence",
+		Data: PresenceData{
+			UserID: userID,
+			Status: status,
+		},
+	})
+	if err != nil {
+		log.Printf("Failed to encode presence event: %v", err)
+		return
+	}
+
+	for _, peerID := range peerIDs {
+		for client := range h.users[peerID] {
+			select {
+			case client.send <- payload:
+			default:
+				log.Printf(
+					"Client buffer full, dropping presence event for user=%s",
+					peerID,
+				)
+			}
+		}
 	}
 }
 

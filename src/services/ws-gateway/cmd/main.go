@@ -6,6 +6,7 @@ import (
 
 	"ws-gateway/internal/auth"
 	"ws-gateway/internal/broker"
+	"ws-gateway/internal/communication"
 	"ws-gateway/internal/config"
 	"ws-gateway/internal/presence"
 	"ws-gateway/internal/ws"
@@ -28,7 +29,9 @@ func main() {
 	defer natsClient.Close()
 	log.Println("Connected to NATS")
 
-	hub := ws.NewHub(redisClient)
+	communicationClient := communication.New(cfg.CommunicationURL)
+
+	hub := ws.NewHub(redisClient, communicationClient)
 	go hub.Run()
 
 	_, err = natsClient.SubscribeToMessagesWithRetry("chat.message.*", hub.HandleNatsEvent)
