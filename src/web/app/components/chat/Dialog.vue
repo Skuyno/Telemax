@@ -12,6 +12,13 @@ const props = defineProps<{
 
 const emit = defineEmits<{ back: []; loadOlder: [] }>()
 
+const auth = useAuthStore()
+
+const myInitials = computed(() => {
+  const name = auth.user?.displayName ?? auth.user?.username ?? ''
+  return name ? toInitials(name) : ''
+})
+
 const draft = ref('')
 const isSending = ref(false)
 const sendError = ref('')
@@ -106,9 +113,7 @@ watch(
     <div ref="feed" class="dialog__feed" @scroll="onScroll">
       <div v-for="group in groups" :key="group.key" class="dialog__group">
         <div class="dialog__date">
-          <span class="dialog__date-line" />
           <span class="dialog__date-label">{{ group.date }}</span>
-          <span class="dialog__date-line" />
         </div>
 
         <ChatMessage
@@ -116,6 +121,7 @@ watch(
           :key="message.id"
           :message="message"
           :own="message.senderId === meId"
+          :initials="message.senderId === meId ? myInitials : chat.initials"
         />
       </div>
 
@@ -137,9 +143,16 @@ watch(
         @keydown.enter="onSend"
       />
 
-      <button type="button" class="dialog__send" :disabled="isSending" @click="onSend">
-        <span aria-hidden="true">▶</span>
-        Отправить
+      <button
+        type="button"
+        class="dialog__send"
+        aria-label="Отправить"
+        :disabled="isSending"
+        @click="onSend"
+      >
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <path d="M3 20.5 21.5 12 3 3.5l3.4 7.2 8.6 1.3-8.6 1.3z" />
+        </svg>
       </button>
     </footer>
   </section>
@@ -157,10 +170,10 @@ watch(
 .dialog__head {
   display: flex;
   align-items: center;
-  gap: 10px;
-  height: 60px;
+  gap: 14px;
+  height: 72px;
   flex: none;
-  padding: 0 14px;
+  padding: 0 20px;
   background: var(--color-lift);
   border-bottom: 1px solid var(--chat-line);
 }
@@ -187,23 +200,23 @@ watch(
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  height: 36px;
+  width: 44px;
+  height: 44px;
   flex: none;
   background: var(--color-surface);
   border: 1px solid var(--chat-accent-soft);
-  border-radius: var(--radius);
+  border-radius: var(--chat-radius);
   font-family: var(--font-heading);
   font-weight: 600;
-  font-size: 12px;
-  color: var(--color-text);
+  font-size: 13px;
+  color: var(--color-accent);
 }
 
 .dialog__title {
   overflow: hidden;
   font-family: var(--font-heading);
   font-weight: 600;
-  font-size: 15px;
+  font-size: 17px;
   color: var(--color-text);
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -212,34 +225,33 @@ watch(
 .dialog__feed {
   flex: 1;
   overflow-y: auto;
-  padding: 14px;
+  padding: 20px;
+  background-image: var(--chat-grid);
+  background-size: 48px 48px;
 }
 
 .dialog__group {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 12px;
 }
 
 .dialog__date {
   display: flex;
-  align-items: center;
-  gap: 10px;
-  margin: 6px 0 2px;
-}
-
-.dialog__date-line {
-  flex: 1;
-  height: 1px;
-  background: var(--chat-line-soft);
+  justify-content: center;
+  margin: 10px 0 4px;
 }
 
 .dialog__date-label {
+  padding: 5px 14px;
+  background: var(--color-lift);
+  border: 1px solid var(--chat-line);
+  border-radius: 999px;
   font-family: var(--font-mono);
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.12em;
-  color: var(--color-text-dim);
+  color: var(--color-text-muted);
 }
 
 .dialog__no-messages {
@@ -253,22 +265,21 @@ watch(
 .dialog__composer {
   display: flex;
   align-items: center;
-  gap: 8px;
-  height: 60px;
+  gap: 10px;
   flex: none;
-  padding: 0 14px;
+  padding: 16px 20px;
   background: var(--color-lift);
   border-top: 1px solid var(--chat-line);
 }
 
 .dialog__input {
-  height: 40px;
+  height: 48px;
   flex: 1;
   min-width: 0;
-  padding: 0 12px;
+  padding: 0 18px;
   background: var(--color-ground);
   border: 1px solid var(--chat-line);
-  border-radius: var(--radius);
+  border-radius: var(--chat-radius-lg);
   outline: none;
   font-family: var(--font-mono);
   font-size: 13px;
@@ -287,21 +298,20 @@ watch(
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  height: 40px;
+  width: 48px;
+  height: 48px;
   flex: none;
-  padding: 0 16px;
+  padding: 0;
   background: var(--color-accent);
   border: none;
-  border-radius: var(--radius);
-  box-shadow: 3px 3px 0 var(--color-ink);
-  font-family: var(--font-display);
-  font-weight: 700;
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.02em;
+  border-radius: var(--chat-radius-lg);
   color: var(--color-ink);
   cursor: pointer;
+}
+
+.dialog__send svg {
+  width: 20px;
+  height: 20px;
 }
 
 .dialog__send:hover:not(:disabled) {
@@ -335,12 +345,9 @@ watch(
     display: flex;
   }
 
-  .dialog__send span {
-    display: none;
-  }
-
-  .dialog__send {
-    padding: 0 12px;
+  .dialog__feed,
+  .dialog__composer {
+    padding-inline: 14px;
   }
 }
 </style>

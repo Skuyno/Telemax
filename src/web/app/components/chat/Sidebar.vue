@@ -2,7 +2,11 @@
 import type { UserSearchResult } from '~/types/chat'
 
 const chatStore = useChatStore()
+const auth = useAuthStore()
 const { searchUsers, openChatWith } = useChats()
+
+const myName = computed(() => auth.user?.displayName ?? auth.user?.username ?? '')
+const myInitials = computed(() => (myName.value ? toInitials(myName.value) : ''))
 
 const emit = defineEmits<{ select: [string] }>()
 
@@ -146,6 +150,11 @@ onBeforeUnmount(() => clearTimeout(searchTimer))
         </p>
       </template>
     </div>
+
+    <footer v-if="myName" class="sidebar__me">
+      <span class="sidebar__me-avatar">{{ myInitials }}</span>
+      <span class="sidebar__me-name">{{ myName }}</span>
+    </footer>
   </aside>
 </template>
 
@@ -163,16 +172,16 @@ onBeforeUnmount(() => clearTimeout(searchTimer))
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 60px;
+  height: 72px;
   flex: none;
-  padding: 0 12px;
-  border-bottom: 2px solid var(--color-accent);
+  padding: 0 16px;
+  border-bottom: 1px solid var(--chat-line);
 }
 
 .sidebar__logo {
   font-family: var(--font-display);
   font-weight: 700;
-  font-size: 13px;
+  font-size: 15px;
   text-transform: uppercase;
   letter-spacing: 0.02em;
   color: var(--color-accent);
@@ -180,26 +189,29 @@ onBeforeUnmount(() => clearTimeout(searchTimer))
 
 .sidebar__actions {
   display: flex;
-  gap: 2px;
+  gap: 8px;
 }
 
 .sidebar__icon-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 36px;
+  height: 36px;
   padding: 0;
-  background: none;
-  border: none;
-  border-radius: var(--radius);
+  background: var(--color-ground);
+  border: 1px solid var(--chat-line);
+  border-radius: var(--chat-radius);
   color: var(--color-text-muted);
   cursor: pointer;
-  transition: color 0.15s ease;
+  transition:
+    color 0.15s ease,
+    border-color 0.15s ease;
 }
 
 .sidebar__icon-btn:hover {
   color: var(--color-accent);
+  border-color: var(--chat-accent-soft);
 }
 
 .sidebar__icon-btn svg {
@@ -209,18 +221,18 @@ onBeforeUnmount(() => clearTimeout(searchTimer))
 
 .sidebar__panel {
   flex: none;
-  padding: 10px 12px;
+  padding: 14px 12px 8px;
 }
 
 .sidebar__search {
   display: flex;
   align-items: center;
-  gap: 8px;
-  height: 34px;
-  padding: 0 10px;
+  gap: 10px;
+  height: 42px;
+  padding: 0 14px;
   background: var(--color-ground);
   border: 1px solid var(--chat-line);
-  border-radius: var(--radius);
+  border-radius: var(--chat-radius-lg);
   color: var(--color-text-dim);
 }
 
@@ -229,8 +241,8 @@ onBeforeUnmount(() => clearTimeout(searchTimer))
 }
 
 .sidebar__search-icon {
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   flex: none;
 }
 
@@ -253,12 +265,16 @@ onBeforeUnmount(() => clearTimeout(searchTimer))
 }
 
 .sidebar__list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
   flex: 1;
   overflow-y: auto;
+  padding: 4px 12px 12px;
 }
 
 .sidebar__section {
-  margin: 10px 12px 4px;
+  margin: 6px 4px 0;
   font-family: var(--font-mono);
   font-size: 10px;
   text-transform: uppercase;
@@ -267,7 +283,7 @@ onBeforeUnmount(() => clearTimeout(searchTimer))
 }
 
 .sidebar__empty {
-  margin: 24px 12px;
+  margin: 18px 4px;
   font-family: var(--font-mono);
   font-size: 11px;
   color: var(--color-text-dim);
@@ -275,6 +291,41 @@ onBeforeUnmount(() => clearTimeout(searchTimer))
 
 .sidebar__empty.is-error {
   color: var(--color-error);
+}
+
+.sidebar__me {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: none;
+  padding: 14px 16px;
+  border-top: 1px solid var(--chat-line);
+}
+
+.sidebar__me-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  flex: none;
+  background: var(--color-surface);
+  border: 1px solid var(--chat-accent-soft);
+  border-radius: var(--chat-radius);
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--color-accent);
+}
+
+.sidebar__me-name {
+  overflow: hidden;
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--color-text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 @media (max-width: 900px) {
