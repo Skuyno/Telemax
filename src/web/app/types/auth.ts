@@ -3,6 +3,7 @@ export interface User {
   username: string
   displayName: string | null
   email: string | null
+  avatarUrl: string | null
   createdAt: string
 }
 
@@ -24,5 +25,6 @@ export interface UserResponse {
   username: string
   email: string | null
   display_name: string | null
+  avatar_url: string | null
   created_at: string
 }

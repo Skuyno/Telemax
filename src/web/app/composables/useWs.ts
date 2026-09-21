@@ -69,12 +69,9 @@ export function useWs(options: UseWsOptions = {}) {
     socket.value = null
   }
 
-  /**
-   * ws-gateway игнорирует всё, что присылает клиент: сообщения отправляются
-   * только через REST (`POST /chats/{id}/messages`), не через этот метод.
-   */
   function send(payload: unknown) {
-    socket.value?.send(JSON.stringify(payload))
+    if (socket.value?.readyState !== WebSocket.OPEN) return
+    socket.value.send(JSON.stringify(payload))
   }
 
   return { socket, isConnected, connect, disconnect, send }

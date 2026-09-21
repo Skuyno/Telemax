@@ -7,19 +7,31 @@ const {
   sendMessage,
   handleRealtimeEvent,
   resync,
+  markRead,
+  sendTyping,
 } = useChats()
 const ws = useWs({ onMessage: handleRealtimeEvent, onReconnect: resync })
 
 const isNarrow = ref(false)
 const showDialogOnNarrow = ref(false)
 const messagesError = ref('')
+let clock: ReturnType<typeof setInterval> | undefined
+
+function onTyping() {
+  if (chatStore.activeChatId) sendTyping(chatStore.activeChatId)
+}
+
+function onPageReturn() {
+  if (document.visibilityState !== 'visible' || !document.hasFocus()) return
+  if (chatStore.activeChatId) markRead(chatStore.activeChatId)
+}
 
 function onSelect() {
   showDialogOnNarrow.value = true
 }
 
-async function send(text: string) {
-  if (chatStore.activeChatId) await sendMessage(chatStore.activeChatId, text)
+async function send(text: string, attachmentIds: string[]) {
+  if (chatStore.activeChatId) await sendMessage(chatStore.activeChatId, text, attachmentIds)
 }
 
 function onLoadOlder() {
@@ -33,9 +45,17 @@ watch(
     if (!chatId) return
     try {
       await loadMessages(chatId)
+      markRead(chatId)
     } catch (e) {
       messagesError.value = extractApiErrorMessage(e, 'Не удалось загрузить сообщения')
     }
+  },
+)
+
+watch(
+  () => chatStore.chats.map((chat) => chat.peerId).join(),
+  (next, prev) => {
+    if (prev !== undefined && next !== prev) ws.send({ type: 'presence.sync' })
   },
 )
 
@@ -45,6 +65,9 @@ onMounted(() => {
   loadChats()
   // Новые сообщения приходят сразу, без F5.
   ws.connect()
+  clock = setInterval(() => chatStore.tick(), 1000)
+  window.addEventListener('focus', onPageReturn)
+  document.addEventListener('visibilitychange', onPageReturn)
 
   const media = window.matchMedia('(max-width: 900px)')
   isNarrow.value = media.matches
@@ -54,7 +77,12 @@ onMounted(() => {
 })
 
 // Экран размонтируется при выходе из аккаунта — сокет старого пользователя закрываем.
-onBeforeUnmount(() => ws.disconnect())
+onBeforeUnmount(() => {
+  ws.disconnect()
+  clearInterval(clock)
+  window.removeEventListener('focus', onPageReturn)
+  document.removeEventListener('visibilitychange', onPageReturn)
+})
 
 const showSidebar = computed(() => !isNarrow.value || !showDialogOnNarrow.value)
 const showDialog = computed(() => !isNarrow.value || showDialogOnNarrow.value)
@@ -73,6 +101,7 @@ const showDialog = computed(() => !isNarrow.value || showDialogOnNarrow.value)
         :send="send"
         :load-error="messagesError"
         @load-older="onLoadOlder"
+        @typing="onTyping"
         @back="showDialogOnNarrow = false"
       />
       <ChatEmpty v-else :has-chats="chatStore.chats.length > 0 || chatStore.isLoadingChats" />
