@@ -6,16 +6,26 @@ const props = defineProps<{ chat: Chat; active: boolean }>()
 
 defineEmits<{ select: [] }>()
 
+const chatStore = useChatStore()
+
+const online = computed(() => chatStore.isPeerOnline(props.chat))
+const typing = computed(() => chatStore.isPeerTyping(props.chat.id))
+const unread = computed(() => (props.active ? 0 : props.chat.unreadCount))
+
 const preview = computed(() => {
   const last = props.chat.lastMessage
   if (!last) return 'Нет сообщений'
-  return last.authorLabel ? `${last.authorLabel}: ${last.body}` : last.body
+  const body = last.body || 'Вложение'
+  return last.authorLabel ? `${last.authorLabel}: ${body}` : body
 })
 </script>
 
 <template>
   <button type="button" class="row" :class="{ 'is-active': active }" @click="$emit('select')">
-    <span class="row__avatar">{{ chat.initials }}</span>
+    <span class="row__avatar">
+      <UserAvatar :url="chat.avatarUrl" :initials="chat.initials" />
+      <span v-if="online" class="row__online" aria-label="в сети" />
+    </span>
 
     <span class="row__body">
       <span class="row__top">
@@ -25,7 +35,11 @@ const preview = computed(() => {
         </span>
       </span>
 
-      <span class="row__preview">{{ preview }}</span>
+      <span class="row__bottom">
+        <span v-if="typing" class="row__preview is-typing">печатает…</span>
+        <span v-else class="row__preview">{{ preview }}</span>
+        <span v-if="unread" class="row__unread">{{ unread > 99 ? '99+' : unread }}</span>
+      </span>
     </span>
   </button>
 </template>
@@ -57,6 +71,7 @@ const preview = computed(() => {
 }
 
 .row__avatar {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -74,6 +89,51 @@ const preview = computed(() => {
 
 .row.is-active .row__avatar {
   border-color: var(--chat-accent-soft);
+}
+
+.row__online {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  width: 12px;
+  height: 12px;
+  background: var(--color-focus);
+  border: 2px solid var(--color-lift);
+  border-radius: 50%;
+  box-shadow: 0 0 8px var(--color-focus);
+}
+
+.row.is-active .row__online,
+.row:hover .row__online {
+  border-color: var(--color-surface);
+}
+
+.row__bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.row__preview.is-typing {
+  color: var(--color-focus);
+}
+
+.row__unread {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 20px;
+  flex: none;
+  padding: 0 7px;
+  background: var(--color-accent);
+  border-radius: 999px;
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 11px;
+  color: var(--color-ink);
 }
 
 .row__body {
