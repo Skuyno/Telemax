@@ -152,7 +152,9 @@ onBeforeUnmount(() => clearTimeout(searchTimer))
     </div>
 
     <footer v-if="myName" class="sidebar__me">
-      <span class="sidebar__me-avatar">{{ myInitials }}</span>
+      <span class="sidebar__me-avatar">
+        <UserAvatar :url="auth.user?.avatarUrl" :initials="myInitials" />
+      </span>
       <span class="sidebar__me-name">{{ myName }}</span>
     </footer>
   </aside>

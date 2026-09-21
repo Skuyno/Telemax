@@ -4,7 +4,76 @@ import type { UserSettings } from '~/types/settings'
 const auth = useAuthStore()
 const settingsStore = useSettingsStore()
 const { load, update } = useSettings()
-const { logout } = useAuth()
+const { logout, updateProfile, uploadAvatar, removeAvatar } = useAuth()
+
+const AVATAR_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
+const AVATAR_MAX_BYTES = 5 * 1024 * 1024
+
+const avatarInput = ref<HTMLInputElement | null>(null)
+const isAvatarBusy = ref(false)
+const avatarError = ref('')
+
+function pickAvatar() {
+  if (!isAvatarBusy.value) avatarInput.value?.click()
+}
+
+async function onAvatarChosen(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+
+  avatarError.value = ''
+  if (!AVATAR_TYPES.includes(file.type)) {
+    avatarError.value = 'Подойдёт картинка в формате JPG, PNG, WEBP или GIF'
+    return
+  }
+  if (file.size > AVATAR_MAX_BYTES) {
+    avatarError.value = 'Файл больше 5 МБ — выберите картинку поменьше'
+    return
+  }
+
+  isAvatarBusy.value = true
+  try {
+    await uploadAvatar(file)
+  } catch (e) {
+    avatarError.value = extractApiErrorMessage(e, 'Не удалось загрузить фото')
+  } finally {
+    isAvatarBusy.value = false
+  }
+}
+
+async function onAvatarRemove() {
+  avatarError.value = ''
+  isAvatarBusy.value = true
+  try {
+    await removeAvatar()
+  } catch (e) {
+    avatarError.value = extractApiErrorMessage(e, 'Не удалось удалить фото')
+  } finally {
+    isAvatarBusy.value = false
+  }
+}
+
+const profile = reactive({ displayName: '', email: '' })
+
+watch(
+  () => auth.user,
+  (user) => {
+    profile.displayName = user?.displayName ?? ''
+    profile.email = user?.email ?? ''
+  },
+  { immediate: true },
+)
+
+const nameChanged = computed(() => profile.displayName.trim() !== (auth.user?.displayName ?? ''))
+const emailChanged = computed(() => profile.email.trim() !== (auth.user?.email ?? ''))
+
+const profileError = computed(() => {
+  if (nameChanged.value && !profile.displayName.trim()) return 'Имя нельзя оставить пустым'
+  if (emailChanged.value && !profile.email.trim()) return 'Почту нельзя удалить, только заменить'
+  return ''
+})
 
 /** Черновик переключателей: на сервер уходит только по кнопке «Сохранить». */
 const draft = reactive<UserSettings>({ notificationsEnabled: false, acceptCalls: false })
@@ -39,7 +108,7 @@ const registeredAt = computed(() => {
   })
 })
 
-const isDirty = computed(() => {
+const settingsDirty = computed(() => {
   const saved = settingsStore.data
   if (!saved) return false
   return (
@@ -48,26 +117,40 @@ const isDirty = computed(() => {
   )
 })
 
+const isDirty = computed(() => settingsDirty.value || nameChanged.value || emailChanged.value)
+
 async function onSave() {
-  const saved = settingsStore.data
-  if (!saved || !isDirty.value || isSaving.value) return
+  if (!isDirty.value || isSaving.value || profileError.value) return
 
   isSaving.value = true
   saveError.value = ''
   try {
-    // Отправляем только то, что реально поменяли.
-    await update({
-      notificationsEnabled:
-        draft.notificationsEnabled !== saved.notificationsEnabled
-          ? draft.notificationsEnabled
-          : undefined,
-      acceptCalls: draft.acceptCalls !== saved.acceptCalls ? draft.acceptCalls : undefined,
-    })
+    if (nameChanged.value || emailChanged.value) {
+      await updateProfile({
+        displayName: nameChanged.value ? profile.displayName.trim() : undefined,
+        email: emailChanged.value ? profile.email.trim() : undefined,
+      })
+    }
+
+    const saved = settingsStore.data
+    if (saved && settingsDirty.value) {
+      // Отправляем только то, что реально поменяли.
+      await update({
+        notificationsEnabled:
+          draft.notificationsEnabled !== saved.notificationsEnabled
+            ? draft.notificationsEnabled
+            : undefined,
+        acceptCalls: draft.acceptCalls !== saved.acceptCalls ? draft.acceptCalls : undefined,
+      })
+    }
     justSaved.value = true
     clearTimeout(savedTimer)
     savedTimer = setTimeout(() => (justSaved.value = false), 2000)
   } catch (e) {
-    saveError.value = extractApiErrorMessage(e, 'Не удалось сохранить настройки')
+    const status = (e as { status?: number }).status
+    if (status === 409) saveError.value = 'Эта почта уже занята другим аккаунтом'
+    else if (status === 422) saveError.value = 'Проверьте почту — адрес выглядит некорректно'
+    else saveError.value = extractApiErrorMessage(e, 'Не удалось сохранить настройки')
   } finally {
     isSaving.value = false
   }
@@ -127,29 +210,105 @@ async function onLogout() {
 
         <div class="settings-main__body">
           <div class="profile-card">
-            <span class="profile-card__avatar">{{ initials }}</span>
+            <button
+              type="button"
+              class="profile-card__avatar"
+              :class="{ 'is-busy': isAvatarBusy }"
+              aria-label="Сменить фото профиля"
+              @click="pickAvatar"
+            >
+              <UserAvatar :url="auth.user?.avatarUrl" :initials="initials" />
+              <span class="profile-card__camera" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M4 8h3l2-3h6l2 3h3v11H4z" />
+                  <circle cx="12" cy="13" r="3.5" />
+                </svg>
+              </span>
+            </button>
+            <input
+              ref="avatarInput"
+              class="profile-card__file"
+              type="file"
+              :accept="AVATAR_TYPES.join(',')"
+              @change="onAvatarChosen"
+            />
+
             <span class="profile-card__text">
               <span class="profile-card__name">{{ displayName }}</span>
               <span class="profile-card__meta">
                 @{{ auth.user?.username }}
                 <template v-if="registeredAt"> · на Телемаксе с {{ registeredAt }}</template>
               </span>
+              <span class="profile-card__actions">
+                <button
+                  type="button"
+                  class="profile-card__link"
+                  :disabled="isAvatarBusy"
+                  @click="pickAvatar"
+                >
+                  {{ isAvatarBusy ? 'Загружаем…' : auth.user?.avatarUrl ? 'Сменить фото' : 'Загрузить фото' }}
+                </button>
+                <button
+                  v-if="auth.user?.avatarUrl"
+                  type="button"
+                  class="profile-card__link is-danger"
+                  :disabled="isAvatarBusy"
+                  @click="onAvatarRemove"
+                >
+                  Удалить фото
+                </button>
+              </span>
             </span>
           </div>
 
-          <label class="field">
-            <span class="field__label">Имя пользователя</span>
-            <span class="field__control">
-              <span class="field__prefix">@</span>
-              <input
-                class="field__input"
-                type="text"
-                :value="auth.user?.username"
-                readonly
-                aria-readonly="true"
-              />
-            </span>
-          </label>
+          <p v-if="avatarError" class="settings-note is-error">{{ avatarError }}</p>
+
+          <div class="fields">
+            <label class="field">
+              <span class="field__label">Отображаемое имя</span>
+              <span class="field__control is-editable">
+                <input
+                  v-model="profile.displayName"
+                  class="field__input"
+                  type="text"
+                  maxlength="64"
+                  :placeholder="auth.user?.username"
+                  :disabled="isSaving"
+                />
+              </span>
+            </label>
+
+            <label class="field">
+              <span class="field__label">Имя пользователя</span>
+              <span class="field__control">
+                <span class="field__prefix">@</span>
+                <input
+                  class="field__input"
+                  type="text"
+                  :value="auth.user?.username"
+                  readonly
+                  aria-readonly="true"
+                />
+              </span>
+            </label>
+
+            <label class="field field--wide">
+              <span class="field__label">Электронная почта</span>
+              <span class="field__control is-editable">
+                <input
+                  v-model="profile.email"
+                  class="field__input"
+                  type="email"
+                  maxlength="255"
+                  placeholder="Не указана"
+                  autocomplete="email"
+                  :disabled="isSaving"
+                />
+              </span>
+            </label>
+          </div>
+
+          <p v-if="profileError" class="settings-note is-error">{{ profileError }}</p>
 
           <h3 class="settings-section">Уведомления</h3>
 
@@ -180,7 +339,7 @@ async function onLogout() {
             <button
               type="button"
               class="save__button"
-              :disabled="!isDirty || isSaving"
+              :disabled="!isDirty || isSaving || !!profileError"
               @click="onSave"
             >
               {{ isSaving ? 'Сохраняем…' : 'Сохранить' }}
@@ -393,12 +552,14 @@ async function onLogout() {
 }
 
 .profile-card__avatar {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
   width: 80px;
   height: 80px;
   flex: none;
+  padding: 0;
   background: var(--color-surface);
   border: 1px solid var(--settings-accent-soft);
   border-radius: var(--radius);
@@ -406,6 +567,70 @@ async function onLogout() {
   font-weight: 600;
   font-size: 24px;
   color: var(--color-accent);
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+
+.profile-card__avatar:hover {
+  border-color: var(--color-accent);
+}
+
+.profile-card__avatar.is-busy {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.profile-card__camera {
+  position: absolute;
+  right: -6px;
+  bottom: -6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: var(--color-accent);
+  border: 2px solid var(--color-lift);
+  color: var(--color-ink);
+}
+
+.profile-card__camera svg {
+  width: 15px;
+  height: 15px;
+}
+
+.profile-card__file {
+  display: none;
+}
+
+.profile-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-top: 4px;
+}
+
+.profile-card__link {
+  padding: 0;
+  background: none;
+  border: none;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--color-accent);
+  cursor: pointer;
+}
+
+.profile-card__link:hover:not(:disabled) {
+  color: var(--color-accent-hover);
+}
+
+.profile-card__link.is-danger {
+  color: var(--color-error);
+}
+
+.profile-card__link:disabled {
+  opacity: 0.6;
+  cursor: wait;
 }
 
 .profile-card__text {
@@ -431,11 +656,22 @@ async function onLogout() {
   color: var(--color-text-muted);
 }
 
+.fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px 22px;
+  margin-top: 28px;
+}
+
 .field {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  margin-top: 28px;
+  min-width: 0;
+}
+
+.field--wide {
+  grid-column: 1 / -1;
 }
 
 .field__label,
@@ -456,6 +692,14 @@ async function onLogout() {
   background: var(--color-ground);
   border: 1px solid var(--settings-line);
   border-radius: var(--radius);
+}
+
+.field__control.is-editable:focus-within {
+  border-color: var(--color-focus);
+}
+
+.field__input::placeholder {
+  color: var(--color-text-dim);
 }
 
 .field__prefix {
@@ -611,6 +855,10 @@ async function onLogout() {
   .settings-main__body,
   .settings-main__footer {
     padding-inline: 18px;
+  }
+
+  .fields {
+    grid-template-columns: 1fr;
   }
 }
 </style>

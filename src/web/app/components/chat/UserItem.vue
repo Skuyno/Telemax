@@ -8,7 +8,9 @@ defineEmits<{ select: [] }>()
 
 <template>
   <button type="button" class="user" :disabled="disabled" @click="$emit('select')">
-    <span class="user__avatar">{{ user.initials }}</span>
+    <span class="user__avatar">
+      <UserAvatar :url="user.avatarUrl" :initials="user.initials" />
+    </span>
     <span class="user__body">
       <span class="user__title">{{ user.title }}</span>
       <span class="user__tag">@{{ user.username }}</span>
