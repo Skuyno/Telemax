@@ -3,7 +3,7 @@ import type { UserSearchResult } from '~/types/chat'
 
 const chatStore = useChatStore()
 const auth = useAuthStore()
-const { searchUsers, openChatWith } = useChats()
+const { searchUsers, openChatWith, openSavedChat } = useChats()
 
 const myName = computed(() => auth.user?.displayName ?? auth.user?.username ?? '')
 const myInitials = computed(() => (myName.value ? toInitials(myName.value) : ''))
@@ -29,6 +29,16 @@ async function onSelectUser(user: UserSearchResult) {
     openError.value = extractApiErrorMessage(e, 'Не удалось открыть чат')
   } finally {
     openingUserId.value = null
+  }
+}
+
+async function onOpenSaved() {
+  openError.value = ''
+  try {
+    await openSavedChat()
+    if (chatStore.activeChatId) emit('select', chatStore.activeChatId)
+  } catch (e) {
+    openError.value = extractApiErrorMessage(e, 'Не удалось открыть избранное')
   }
 }
 
@@ -63,6 +73,17 @@ onBeforeUnmount(() => clearTimeout(searchTimer))
     <header class="sidebar__head">
       <span class="sidebar__logo">Телемакс</span>
       <div class="sidebar__actions">
+        <button
+          type="button"
+          class="sidebar__icon-btn"
+          aria-label="Избранное"
+          title="Избранное"
+          @click="onOpenSaved"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <path d="M6 3h12v18l-6-4.5L6 21z" />
+          </svg>
+        </button>
         <button
           type="button"
           class="sidebar__icon-btn"
@@ -139,7 +160,8 @@ onBeforeUnmount(() => clearTimeout(searchTimer))
       </template>
 
       <template v-else>
-        <p v-if="chatStore.chatsError" class="sidebar__empty is-error">
+        <p v-if="openError" class="sidebar__empty is-error">{{ openError }}</p>
+        <p v-else-if="chatStore.chatsError" class="sidebar__empty is-error">
           {{ chatStore.chatsError }}
         </p>
         <p v-else-if="chatStore.isLoadingChats && !chatStore.chats.length" class="sidebar__empty">

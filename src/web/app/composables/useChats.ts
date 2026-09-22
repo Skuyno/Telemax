@@ -12,6 +12,7 @@ import type {
 const PAGE_SIZE = 50
 const SEARCH_LIMIT = 20
 const TYPING_THROTTLE_MS = 2500
+const SAVED_TITLE = 'Избранное'
 
 const lastTypingSentByChatId = new Map<string, number>()
 
@@ -72,20 +73,26 @@ export function useChats() {
       chatStore.setChats(
         chats.map((chat, index): Chat => {
           const peer = userById.get(peerIds[index]!)
-          const title = peer ? displayName(peer) : 'Неизвестный пользователь'
+          const isSaved = peerIds[index] === me
+          const title = isSaved
+            ? SAVED_TITLE
+            : peer
+              ? displayName(peer)
+              : 'Неизвестный пользователь'
           const last = chat.last_message
           return {
             id: chat.id,
             title,
             initials: toInitials(title),
             peerId: peerIds[index]!,
-            avatarUrl: peer?.avatar_url ?? null,
+            avatarUrl: isSaved ? null : (peer?.avatar_url ?? null),
             unreadCount: chat.unread_count,
+            isSaved,
             lastMessage: last
               ? {
                   body: last.body,
                   createdAt: last.created_at,
-                  authorLabel: last.sender_id === me ? 'Вы' : undefined,
+                  authorLabel: last.sender_id === me && !isSaved ? 'Вы' : undefined,
                 }
               : undefined,
           }
@@ -226,6 +233,39 @@ export function useChats() {
     chatStore.setActiveChat(chat.id)
   }
 
+  async function openSavedChat() {
+    const me = chatStore.meId
+    if (!me) return
+
+    const existing = chatStore.chats.find((item) => item.isSaved)
+    if (existing) {
+      chatStore.setActiveChat(existing.id)
+      return
+    }
+
+    const chat = await api<{ id: string }>('/chats/direct', {
+      method: 'POST',
+      body: { peer_user_id: me },
+    })
+
+    if (!chatStore.chats.some((item) => item.id === chat.id)) {
+      chatStore.setChats([
+        ...chatStore.chats,
+        {
+          id: chat.id,
+          title: SAVED_TITLE,
+          initials: toInitials(SAVED_TITLE),
+          peerId: me,
+          avatarUrl: null,
+          unreadCount: 0,
+          isSaved: true,
+        },
+      ])
+    }
+
+    chatStore.setActiveChat(chat.id)
+  }
+
   /**
    * Новое сообщение из ws-gateway. Приходит всем участникам чата, в том числе
    * отправителю: своё сообщение уже добавлено после REST-ответа, addMessage
@@ -337,6 +377,7 @@ export function useChats() {
     sendMessage,
     searchUsers,
     openChatWith,
+    openSavedChat,
     handleRealtimeEvent,
     resync,
     markRead,

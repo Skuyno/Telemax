@@ -23,7 +23,8 @@ const preview = computed(() => {
 <template>
   <button type="button" class="row" :class="{ 'is-active': active }" @click="$emit('select')">
     <span class="row__avatar">
-      <UserAvatar :url="chat.avatarUrl" :initials="chat.initials" />
+      <ChatSavedIcon v-if="chat.isSaved" />
+      <UserAvatar v-else :url="chat.avatarUrl" :initials="chat.initials" />
       <span v-if="online" class="row__online" aria-label="в сети" />
     </span>
 

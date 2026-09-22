@@ -46,9 +46,11 @@ export const useChatStore = defineStore('chat', {
       return useAuthStore().user?.id ?? null
     },
 
-    isPeerOnline: (state) => (chat: Chat) => Boolean(state.onlineByUserId[chat.peerId]),
+    isPeerOnline: (state) => (chat: Chat) =>
+      !chat.isSaved && Boolean(state.onlineByUserId[chat.peerId]),
 
     isPeerTyping: (state) => (chatId: string) =>
+      !state.chats.find((chat) => chat.id === chatId)?.isSaved &&
       (state.typingUntilByChatId[chatId] ?? 0) > state.now,
 
     isMessageRead: (state) => (message: Message) => {
@@ -130,7 +132,7 @@ export const useChatStore = defineStore('chat', {
         chat.lastMessage = {
           body: message.body,
           createdAt: message.createdAt,
-          authorLabel: message.senderId === this.meId ? 'Вы' : undefined,
+          authorLabel: message.senderId === this.meId && !chat.isSaved ? 'Вы' : undefined,
         }
         if (message.senderId !== this.meId && message.chatId !== this.activeChatId) {
           chat.unreadCount += 1
@@ -155,7 +157,7 @@ export const useChatStore = defineStore('chat', {
         chat.lastMessage = {
           body: updated.isDeleted ? 'Сообщение удалено' : updated.body,
           createdAt: updated.createdAt,
-          authorLabel: updated.senderId === this.meId ? 'Вы' : undefined,
+          authorLabel: updated.senderId === this.meId && !chat.isSaved ? 'Вы' : undefined,
         }
       }
     },
