@@ -11,6 +11,7 @@ export interface Chat {
   peerId: string
   avatarUrl: string | null
   unreadCount: number
+  isSaved?: boolean
   lastMessage?: ChatPreview
 }
 
