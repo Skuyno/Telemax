@@ -384,25 +384,43 @@ async def get_read_state(
 
 
 async def set_read_state(
-    db: AsyncSession, chat_id: UUID, user_id: UUID, message_id: UUID
+    db: AsyncSession,
+    chat_id: UUID,
+    user_id: UUID,
+    message_id: UUID,
+    message_created_at: datetime,
 ) -> ChatReadState:
     """Create or advance a user's read state for a chat.
+
+    `last_read_at` is the *marked message's own* `created_at`, not the
+    time of this call — unread counts compare against it, so using
+    "now" here would wrongly mark every message sent between the
+    referenced message and this API call as read too (e.g. if the
+    client marks an older message read, or the call arrives late).
+
+    Never moves the cursor backward: a stale or out-of-order call
+    marking an older message read than what's already recorded is a
+    no-op, not a regression that un-reads newer messages.
 
     Args:
         db: Async database session.
         chat_id: Id of the chat.
         user_id: Id of the user marking it read.
         message_id: Id of the last message read.
+        message_created_at: `created_at` of the message being marked read.
 
     Returns:
-        ChatReadState: The updated (or created) read state.
+        ChatReadState: The current (possibly unchanged) read state.
     """
     state = await get_read_state(db, chat_id, user_id)
     if state is None:
         state = ChatReadState(chat_id=chat_id, user_id=user_id)
         db.add(state)
+    elif state.last_read_at >= message_created_at:
+        return state
+
     state.last_read_message_id = message_id
-    state.last_read_at = datetime.now(timezone.utc)
+    state.last_read_at = message_created_at
     await db.commit()
     return state
 

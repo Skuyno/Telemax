@@ -443,7 +443,9 @@ async def mark_chat_read(
     if message is None:
         raise HTTPException(status_code=404, detail="message not found")
 
-    await chats_repository.set_read_state(db, chat_id, user_id, last_read_message_id)
+    await chats_repository.set_read_state(
+        db, chat_id, user_id, last_read_message_id, message.created_at
+    )
 
     recipient_ids = await _get_recipient_ids(db, chat_id, exclude_user_id=user_id)
     await nats_client.publish(
