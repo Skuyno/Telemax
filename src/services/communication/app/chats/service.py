@@ -206,6 +206,11 @@ async def send_message(
     if created:
         await chats_repository.add_attachments(db, msg.id, data.attachment_file_ids)
 
+    # Single commit for both: neither create_message nor add_attachments
+    # commits on its own, so a crash here loses the whole message, never
+    # just its attachments.
+    await db.commit()
+
     recipient_ids = await _get_recipient_ids(db, chat_id)
 
     await nats_client.publish(
