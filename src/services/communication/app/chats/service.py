@@ -323,6 +323,7 @@ async def edit_message(
     message = await chats_repository.update_message_body(db, message, body)
 
     recipient_ids = await _get_recipient_ids(db, chat_id, exclude_user_id=user_id)
+    attachment_ids = await chats_repository.get_attachment_ids(db, message.id)
     await nats_client.publish(
         SUBJECT_MESSAGE_UPDATED,
         {
@@ -333,6 +334,10 @@ async def edit_message(
             "body": message.body,
             "edited_at": message.edited_at.isoformat() if message.edited_at else None,
             "created_at": message.created_at.isoformat(),
+            # Attachments can't actually change via edit (no endpoint for
+            # that) — included anyway so WS clients can replace the whole
+            # message on update without losing what it's attached to.
+            "attachment_file_ids": [str(fid) for fid in attachment_ids],
         },
     )
     return message

@@ -42,6 +42,7 @@ type InboundEvent struct {
 	CreatedAt         string   `json:"created_at"`
 	EditedAt          string   `json:"edited_at"`
 	LastReadMessageID string   `json:"last_read_message_id"`
+	AttachmentFileIDs []string `json:"attachment_file_ids"`
 
 	FileID        string `json:"file_id"`
 	UploaderID    string `json:"uploader_id"`
@@ -50,12 +51,13 @@ type InboundEvent struct {
 }
 
 type MessageData struct {
-	MessageID string  `json:"message_id"`
-	ChatID    string  `json:"chat_id"`
-	SenderID  string  `json:"sender_id"`
-	Body      string  `json:"body"`
-	CreatedAt string  `json:"created_at"`
-	EditedAt  *string `json:"edited_at,omitempty"`
+	MessageID         string   `json:"message_id"`
+	ChatID            string   `json:"chat_id"`
+	SenderID          string   `json:"sender_id"`
+	Body              string   `json:"body"`
+	CreatedAt         string   `json:"created_at"`
+	EditedAt          *string  `json:"edited_at,omitempty"`
+	AttachmentFileIDs []string `json:"attachment_file_ids"`
 }
 
 type MessageDeletedData struct {
@@ -353,11 +355,12 @@ func buildOutboundEvent(subject string, event InboundEvent) (OutboundEvent, bool
 		return OutboundEvent{
 			Type: "message.created",
 			Data: MessageData{
-				MessageID: event.ID,
-				ChatID:    event.ChatID,
-				SenderID:  event.SenderID,
-				Body:      event.Body,
-				CreatedAt: event.CreatedAt,
+				MessageID:         event.ID,
+				ChatID:            event.ChatID,
+				SenderID:          event.SenderID,
+				Body:              event.Body,
+				CreatedAt:         event.CreatedAt,
+				AttachmentFileIDs: event.AttachmentFileIDs,
 			},
 		}, true
 	case subjectMessageUpdated:
@@ -368,12 +371,13 @@ func buildOutboundEvent(subject string, event InboundEvent) (OutboundEvent, bool
 		return OutboundEvent{
 			Type: "message.updated",
 			Data: MessageData{
-				MessageID: event.ID,
-				ChatID:    event.ChatID,
-				SenderID:  event.SenderID,
-				Body:      event.Body,
-				CreatedAt: event.CreatedAt,
-				EditedAt:  editedAt,
+				MessageID:         event.ID,
+				ChatID:            event.ChatID,
+				SenderID:          event.SenderID,
+				Body:              event.Body,
+				CreatedAt:         event.CreatedAt,
+				AttachmentFileIDs: event.AttachmentFileIDs,
+				EditedAt:          editedAt,
 			},
 		}, true
 	case subjectMessageDeleted:
