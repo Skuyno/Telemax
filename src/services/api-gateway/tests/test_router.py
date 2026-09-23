@@ -15,9 +15,9 @@ from app.config import settings
 from app.main import app
 
 
-def _access_token() -> str:
+def _access_token(user_id: str) -> str:
     return jwt.encode(
-        {"sub": str(uuid4()), "type": "access"},
+        {"sub": user_id, "type": "access"},
         settings.jwt_secret,
         algorithm=settings.jwt_algorithm,
     )
@@ -58,7 +58,7 @@ async def test_content_disposition_survives_the_proxy():
         async with HttpClient(transport=transport, base_url="http://test") as client:
             resp = await client.get(
                 "/files/some-id",
-                headers={"Authorization": f"Bearer {_access_token()}"},
+                headers={"Authorization": f"Bearer {_access_token(str(uuid4()))}"},
             )
 
     assert resp.status_code == 200
@@ -83,8 +83,38 @@ async def test_hop_by_hop_response_headers_are_dropped():
         async with HttpClient(transport=transport, base_url="http://test") as client:
             resp = await client.get(
                 "/files/some-id",
-                headers={"Authorization": f"Bearer {_access_token()}"},
+                headers={"Authorization": f"Bearer {_access_token(str(uuid4()))}"},
             )
 
     assert "transfer-encoding" not in resp.headers
     assert "connection" not in resp.headers
+
+
+async def test_client_cannot_spoof_x_user_id():
+    """X-User-Id sent upstream always comes from the verified JWT.
+
+    Never from a client-supplied header, even if the client sends one.
+    Raised in code review (PR #22): could a malicious client override
+    trust headers like X-User-Id? headers={} is a fresh dict each
+    request, X-User-Id is set only from get_authorization_token(), and
+    FORWARDED_REQUEST_HEADERS never includes x-user-id or authorization
+    — this pins that down with an actual assertion on what's sent.
+    """
+    real_user_id = str(uuid4())
+    attacker_supplied_id = str(uuid4())
+    fake_client = _fake_upstream_client(200, {"content-type": "text/plain"}, b"ok")
+
+    with patch("app.router.httpx.AsyncClient", return_value=fake_client):
+        transport = ASGITransport(app=app)
+        async with HttpClient(transport=transport, base_url="http://test") as client:
+            await client.get(
+                "/files/some-id",
+                headers={
+                    "Authorization": f"Bearer {_access_token(real_user_id)}",
+                    "X-User-Id": attacker_supplied_id,
+                },
+            )
+
+    sent_headers = fake_client.build_request.call_args.kwargs["headers"]
+    assert sent_headers["X-User-Id"] == real_user_id
+    assert "Authorization" not in sent_headers
