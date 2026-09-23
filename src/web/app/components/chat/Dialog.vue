@@ -140,6 +140,8 @@ function resizeInput() {
 
 watch(draft, () => nextTick(resizeInput))
 
+onMounted(() => resizeInput())
+
 function startEdit(message: Message) {
   uploads.value = []
   editing.value = message
@@ -286,6 +288,7 @@ watch(
     searchOpen.value = false
     searchQuery.value = ''
     searchResults.value = []
+    nextTick(resizeInput)
     scrollToBottom()
   },
   { immediate: true },
@@ -687,6 +690,7 @@ watch(
 
 .dialog__input {
   height: 48px;
+  min-height: 48px;
   max-height: 160px;
   flex: 1;
   min-width: 0;
