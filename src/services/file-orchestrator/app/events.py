@@ -78,7 +78,13 @@ class NatsClient:
         await self.js.publish(subject, payload)
 
     async def subscribe(self, subject: str, handler: Callable[[dict], Awaitable[None]]):
-        """Subscribe to a subject with a durable consumer, acking after handling.
+        """Subscribe to a subject with a durable consumer.
+
+        Only acks after the handler succeeds. On failure the message is
+        nak'd instead — acking unconditionally would silently drop the
+        event forever (e.g. a failed blob delete would leave an orphaned
+        file in storage with no further chance of cleanup); nak lets
+        JetStream redeliver it.
 
         Args:
             subject: NATS subject to subscribe to.
@@ -90,7 +96,8 @@ class NatsClient:
                 await handler(json.loads(msg.data))
             except Exception:
                 logger.exception("Failed to handle NATS message on %s", msg.subject)
-            finally:
+                await msg.nak()
+            else:
                 await msg.ack()
 
         await self.js.subscribe(
