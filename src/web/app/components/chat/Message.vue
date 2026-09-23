@@ -8,6 +8,7 @@ defineProps<{
   initials: string
   avatarUrl?: string | null
   read?: boolean
+  hideStatus?: boolean
   highlighted?: boolean
 }>()
 
@@ -43,7 +44,7 @@ defineEmits<{ edit: []; remove: [] }>()
         <span v-if="message.editedAt && !message.isDeleted" class="bubble__edited">изменено</span>
         <span class="bubble__time">{{ formatMessageTime(message.createdAt) }}</span>
         <svg
-          v-if="own && read"
+          v-if="own && !hideStatus && read"
           class="bubble__check"
           viewBox="0 0 24 24"
           fill="none"
@@ -56,7 +57,7 @@ defineEmits<{ edit: []; remove: [] }>()
           <path d="M13 17l8-9" />
         </svg>
         <svg
-          v-else-if="own"
+          v-else-if="own && !hideStatus"
           class="bubble__check"
           viewBox="0 0 24 24"
           fill="none"

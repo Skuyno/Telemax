@@ -265,11 +265,13 @@ watch(
       </button>
 
       <span class="dialog__avatar">
-        <UserAvatar :url="chat.avatarUrl" :initials="chat.initials" />
+        <ChatSavedIcon v-if="chat.isSaved" />
+        <UserAvatar v-else :url="chat.avatarUrl" :initials="chat.initials" />
         <span v-if="online" class="dialog__online" />
       </span>
       <span class="dialog__ident">
         <span class="dialog__title">{{ chat.title }}</span>
+        <span v-if="chat.isSaved" class="dialog__status">заметки для себя</span>
         <span v-if="typing" class="dialog__status is-active">печатает…</span>
         <span v-else-if="online" class="dialog__status is-active">в сети</span>
       </span>
@@ -336,6 +338,7 @@ watch(
           :initials="message.senderId === meId ? myInitials : chat.initials"
           :avatar-url="message.senderId === meId ? auth.user?.avatarUrl : chat.avatarUrl"
           :read="chatStore.isMessageRead(message)"
+          :hide-status="chat.isSaved"
           :highlighted="highlightedId === message.id"
           @edit="startEdit(message)"
           @remove="onRemove(message)"
@@ -343,6 +346,9 @@ watch(
       </div>
 
       <p v-if="loadError" class="dialog__no-messages is-error">{{ loadError }}</p>
+      <p v-else-if="!messages.length && chat.isSaved" class="dialog__no-messages">
+        Сохраняйте сюда заметки, ссылки и файлы — их видите только вы.
+      </p>
       <p v-else-if="!messages.length" class="dialog__no-messages">
         Сообщений пока нет — напишите первым.
       </p>
