@@ -206,6 +206,11 @@ async def send_message(
     if created:
         await chats_repository.add_attachments(db, msg.id, data.attachment_file_ids)
 
+    # Single commit for both: neither create_message nor add_attachments
+    # commits on its own, so a crash here loses the whole message, never
+    # just its attachments.
+    await db.commit()
+
     recipient_ids = await _get_recipient_ids(db, chat_id)
 
     await nats_client.publish(
@@ -318,6 +323,7 @@ async def edit_message(
     message = await chats_repository.update_message_body(db, message, body)
 
     recipient_ids = await _get_recipient_ids(db, chat_id, exclude_user_id=user_id)
+    attachment_ids = await chats_repository.get_attachment_ids(db, message.id)
     await nats_client.publish(
         SUBJECT_MESSAGE_UPDATED,
         {
@@ -328,6 +334,10 @@ async def edit_message(
             "body": message.body,
             "edited_at": message.edited_at.isoformat() if message.edited_at else None,
             "created_at": message.created_at.isoformat(),
+            # Attachments can't actually change via edit (no endpoint for
+            # that) — included anyway so WS clients can replace the whole
+            # message on update without losing what it's attached to.
+            "attachment_file_ids": [str(fid) for fid in attachment_ids],
         },
     )
     return message
@@ -443,7 +453,9 @@ async def mark_chat_read(
     if message is None:
         raise HTTPException(status_code=404, detail="message not found")
 
-    await chats_repository.set_read_state(db, chat_id, user_id, last_read_message_id)
+    await chats_repository.set_read_state(
+        db, chat_id, user_id, last_read_message_id, message.created_at
+    )
 
     recipient_ids = await _get_recipient_ids(db, chat_id, exclude_user_id=user_id)
     await nats_client.publish(

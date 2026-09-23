@@ -1,6 +1,6 @@
 """Tests for message attachments (file_id references validated by file-orchestrator)."""
 
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
 from httpx import AsyncClient
@@ -106,6 +106,43 @@ async def test_retrying_send_does_not_duplicate_attachments(client: AsyncClient)
     assert second.status_code == 201
     assert first.json()["id"] == second.json()["id"]
     assert second.json()["attachment_file_ids"] == [file_id]
+
+
+async def test_failed_attachment_link_rolls_back_the_whole_message(
+    client: AsyncClient,
+):
+    """A failure while linking attachments must not leave an orphan message.
+
+    Regression test: message creation and attachment linking used to be
+    two separate commits — a crash between them could save the message
+    without its attachment. They now share a single commit, so a failure
+    partway through must discard the message too, not just the attachment.
+    """
+    sender_id = str(uuid4())
+    chat_id = await _create_chat(client, sender_id, str(uuid4()))
+    client_msg_id = str(uuid4())
+
+    with patch(
+        "app.chats.service.chats_repository.add_attachments",
+        side_effect=RuntimeError("boom"),
+    ):
+        try:
+            await client.post(
+                f"/chats/{chat_id}/messages",
+                json={
+                    "body": "never persisted",
+                    "client_msg_id": client_msg_id,
+                    "attachment_file_ids": [str(uuid4())],
+                },
+                headers={"X-User-Id": sender_id},
+            )
+        except RuntimeError:
+            pass
+
+    resp = await client.get(
+        f"/chats/{chat_id}/messages?limit=10", headers={"X-User-Id": sender_id}
+    )
+    assert resp.json() == []
 
 
 async def test_delete_message_publishes_attachment_ids(

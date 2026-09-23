@@ -18,6 +18,24 @@ PUBLIC_PATHS = {"auth/register", "auth/login", "auth/refresh"}
 # uploads to file-orchestrator, which has no other way to receive it.
 FORWARDED_REQUEST_HEADERS = ("content-type", "content-length", "x-filename")
 
+# Hop-by-hop headers plus ones StreamingResponse computes itself (it sends
+# the body chunked, so upstream's original content-length/content-encoding
+# would be wrong) or that don't make sense to replay a second time. Every
+# other upstream response header (notably Content-Disposition, needed for
+# file-orchestrator downloads to carry the original filename) passes through.
+DROPPED_RESPONSE_HEADERS = {
+    "connection",
+    "keep-alive",
+    "proxy-authenticate",
+    "proxy-authorization",
+    "te",
+    "trailer",
+    "transfer-encoding",
+    "upgrade",
+    "content-length",
+    "content-encoding",
+}
+
 router = APIRouter()
 
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -109,8 +127,14 @@ async def proxy(
             await upstream.aclose()
             await client.aclose()
 
+    response_headers = {
+        key: value
+        for key, value in upstream.headers.items()
+        if key.lower() not in DROPPED_RESPONSE_HEADERS
+    }
+
     return StreamingResponse(
         upstream_body(),
         status_code=upstream.status_code,
-        media_type=upstream.headers.get("content-type"),
+        headers=response_headers,
     )

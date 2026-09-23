@@ -4,7 +4,10 @@ import "testing"
 
 func TestBuildOutboundEvent(t *testing.T) {
 	t.Run("message created", func(t *testing.T) {
-		event := InboundEvent{ID: "m1", ChatID: "c1", SenderID: "u1", Body: "hi", CreatedAt: "t1"}
+		event := InboundEvent{
+			ID: "m1", ChatID: "c1", SenderID: "u1", Body: "hi", CreatedAt: "t1",
+			AttachmentFileIDs: []string{"f1", "f2"},
+		}
 		out, ok := buildOutboundEvent(subjectMessageCreated, event)
 		if !ok {
 			t.Fatal("expected ok=true")
@@ -19,10 +22,16 @@ func TestBuildOutboundEvent(t *testing.T) {
 		if data.MessageID != "m1" || data.Body != "hi" {
 			t.Fatalf("unexpected data: %+v", data)
 		}
+		if len(data.AttachmentFileIDs) != 2 || data.AttachmentFileIDs[0] != "f1" {
+			t.Fatalf("expected attachment_file_ids to survive, got %+v", data.AttachmentFileIDs)
+		}
 	})
 
-	t.Run("message updated carries edited_at", func(t *testing.T) {
-		event := InboundEvent{ID: "m1", ChatID: "c1", Body: "edited", EditedAt: "t2"}
+	t.Run("message updated carries edited_at and attachment_file_ids", func(t *testing.T) {
+		event := InboundEvent{
+			ID: "m1", ChatID: "c1", Body: "edited", EditedAt: "t2",
+			AttachmentFileIDs: []string{"f1"},
+		}
 		out, ok := buildOutboundEvent(subjectMessageUpdated, event)
 		if !ok {
 			t.Fatal("expected ok=true")
@@ -30,6 +39,9 @@ func TestBuildOutboundEvent(t *testing.T) {
 		data := out.Data.(MessageData)
 		if data.EditedAt == nil || *data.EditedAt != "t2" {
 			t.Fatalf("expected edited_at=t2, got %+v", data.EditedAt)
+		}
+		if len(data.AttachmentFileIDs) != 1 || data.AttachmentFileIDs[0] != "f1" {
+			t.Fatalf("expected attachment_file_ids to survive, got %+v", data.AttachmentFileIDs)
 		}
 	})
 
