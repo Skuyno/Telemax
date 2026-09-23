@@ -6,6 +6,7 @@ import (
 
 	"ws-gateway/internal/auth"
 	"ws-gateway/internal/broker"
+	"ws-gateway/internal/communication"
 	"ws-gateway/internal/config"
 	"ws-gateway/internal/presence"
 	"ws-gateway/internal/ws"
@@ -28,14 +29,22 @@ func main() {
 	defer natsClient.Close()
 	log.Println("Connected to NATS")
 
-	hub := ws.NewHub()
+	communicationClient := communication.New(cfg.CommunicationURL)
+
+	hub := ws.NewHub(redisClient, communicationClient)
 	go hub.Run()
 
-	_, err = natsClient.SubscribeToMessages("chat.message.created", hub.BroadcastToUsers)
+	_, err = natsClient.SubscribeToMessagesWithRetry("chat.message.*", hub.HandleNatsEvent)
 	if err != nil {
 		log.Fatalf("Failed to subscribe to NATS: %v", err)
 	}
-	log.Println("Subscribed to chat.message.created")
+	log.Println("Subscribed to chat.message.*")
+
+	_, err = natsClient.SubscribeToMessagesWithRetry("file.upload.*", hub.HandleNatsEvent)
+	if err != nil {
+		log.Fatalf("Failed to subscribe to NATS: %v", err)
+	}
+	log.Println("Subscribed to file.upload.*")
 
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -56,7 +65,7 @@ func main() {
 			return
 		}
 
-		hub.ServeWs(redisClient, userID, w, r)
+		hub.ServeWs(userID, w, r)
 	})
 
 	addr := ":" + cfg.Port

@@ -3,7 +3,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class CreateDirectChatRequest(BaseModel):
@@ -31,12 +31,13 @@ class MessagePreview(BaseModel):
 
 
 class ChatResponse(BaseModel):
-    """Chat list item: id and a preview of the last message."""
+    """Chat list item: id, unread count, and a preview of the last message."""
 
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
     last_message: MessagePreview | None
+    unread_count: int = 0
 
 
 class ChatMembersResponse(BaseModel):
@@ -54,6 +55,19 @@ class SendMessageRequest(BaseModel):
 
     body: str
     client_msg_id: UUID
+    attachment_file_ids: list[UUID] = Field(default_factory=list)
+
+
+class EditMessageRequest(BaseModel):
+    """Request to edit an existing message's text."""
+
+    body: str = Field(min_length=1)
+
+
+class MarkChatReadRequest(BaseModel):
+    """Request to mark a chat read up to (and including) a given message."""
+
+    last_read_message_id: UUID
 
 
 class MessageResponse(BaseModel):
@@ -65,4 +79,7 @@ class MessageResponse(BaseModel):
     chat_id: UUID
     sender_id: UUID
     body: str
+    edited_at: datetime | None
+    is_deleted: bool
     created_at: datetime
+    attachment_file_ids: list[UUID] = Field(default_factory=list)

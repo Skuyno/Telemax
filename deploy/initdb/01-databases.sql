@@ -1,4 +1,6 @@
 CREATE DATABASE telemax_identity;
 CREATE DATABASE telemax_communication;
+CREATE DATABASE telemax_file_orchestrator;
 CREATE DATABASE test_telemax_identity;
 CREATE DATABASE test_telemax_communication;
+CREATE DATABASE test_telemax_file_orchestrator;

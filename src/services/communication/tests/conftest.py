@@ -23,18 +23,42 @@ test_session_maker = async_sessionmaker(test_engine, expire_on_commit=False)
 
 @pytest.fixture(autouse=True)
 def mock_identity_service():
-    """Mock chats GET request made via httpx.AsyncClient."""
+    """Mock outbound httpx.AsyncClient calls made from app/chats/service.py.
+
+    Covers both the identity peer-existence check (GET, used when creating
+    a direct chat) and the file-orchestrator attachment validation check
+    (POST, used when sending a message with attachments). Permissive by
+    default — the peer always exists, and every requested file id comes
+    back valid — so most tests don't need to know these calls happen at
+    all. Tests that care about attachment validation can still reach in
+    and override `mock_identity_service.return_value.post.side_effect`.
+    """
     with patch("app.chats.service.httpx.AsyncClient") as mock_client_class:
         mock_client_instance = AsyncMock()
 
         # By default AsyncMock supports async with, so we just set the return value
         # for when httpx.AsyncClient() is called
         mock_client_class.return_value = mock_client_instance
+        # ...but `__aenter__()` on a bare AsyncMock returns a *different*
+        # auto-mock by default, not mock_client_instance itself — without
+        # this, `async with httpx.AsyncClient() as client: client.get(...)`
+        # would call methods on an unconfigured mock, not the one below.
+        mock_client_instance.__aenter__.return_value = mock_client_instance
 
         # Set up the mock response for client.get()
-        mock_response = AsyncMock()
-        mock_response.status_code = 200
-        mock_client_instance.get.return_value = mock_response
+        mock_get_response = AsyncMock()
+        mock_get_response.status_code = 200
+        mock_client_instance.get.return_value = mock_get_response
+
+        # client.post(...) for file-orchestrator's /internal/files/validate:
+        # echo back whatever file_ids were asked about as all being valid.
+        def _echo_requested_file_ids_as_valid(*args, **kwargs):
+            response = AsyncMock()
+            response.raise_for_status = lambda: None
+            response.json = lambda: {"valid_file_ids": kwargs["json"]["file_ids"]}
+            return response
+
+        mock_client_instance.post.side_effect = _echo_requested_file_ids_as_valid
 
         yield mock_client_class
 

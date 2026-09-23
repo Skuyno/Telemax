@@ -17,7 +17,13 @@ services:
   nats:
     image: nats:alpine
     container_name: nats
-    command: "-js"
+    command: "-js -m 8222"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8222/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
   redis:
     image: redis:7-alpine
     container_name: redis
@@ -27,12 +33,26 @@ services:
       timeout: 3s
       retries: 5
     restart: unless-stopped
+  seaweedfs:
+    image: chrislusf/seaweedfs
+    container_name: seaweedfs
+    command: "server -dir=/data -filer -master.volumeSizeLimitMB=1024"
+    volumes:
+      - seaweedfs_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8888/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
   identity:
     build: ../src/services/identity
     container_name: identity
     env_file: ../src/services/identity/.env
     depends_on:
       db:
+        condition: service_healthy
+      seaweedfs:
         condition: service_healthy
     healthcheck:
       test: [ "CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health/db')\"" ]
@@ -51,12 +71,35 @@ services:
         condition: service_healthy
       communication:
         condition: service_healthy
+      file-orchestrator:
+        condition: service_healthy
+  file-orchestrator:
+    build: ../src/services/file-orchestrator
+    container_name: file-orchestrator
+    env_file: ../src/services/file-orchestrator/.env
+    depends_on:
+      db:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+      seaweedfs:
+        condition: service_healthy
+      communication:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health/db')\"" ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
   communication:
     build: ../src/services/communication
     container_name: communication
     env_file: ../src/services/communication/.env
     depends_on:
       db:
+        condition: service_healthy
+      nats:
         condition: service_healthy
     healthcheck:
       test: [ "CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health/db')\"" ]
@@ -75,6 +118,34 @@ services:
         condition: service_healthy
       nats:
         condition: service_started
+      communication:
+        condition: service_healthy
+  web:
+    build: ../src/web
+    container_name: web
+    environment:
+      # Relative paths: web sits behind nginx on the same origin as
+      # api-gateway/ws-gateway, so browser requests are same-origin and
+      # never trigger CORS. Hardcoded on purpose (not ${VAR:-default}):
+      # a stray shell/.env NUXT_PUBLIC_API_BASE would otherwise silently
+      # override this and break the same-origin setup with no clear error.
+      # A local compose override needing a different value (e.g. hitting
+      # web directly, bypassing nginx) should set it explicitly too.
+      NUXT_PUBLIC_API_BASE: /api
+      NUXT_PUBLIC_WS_BASE: /ws
+    depends_on:
+      - api-gateway
+      - ws-gateway
+  nginx:
+    build: ../src/services/nginx
+    container_name: nginx
+    ports:
+      - "80:80"
+    depends_on:
+      - web
+      - api-gateway
+      - ws-gateway
 
 volumes:
   pgdata:
+  seaweedfs_data:

@@ -60,8 +60,40 @@ class Message(Base):
     sender_id: Mapped[UUID]
     body: Mapped[str] = mapped_column(Text)
     client_msg_id: Mapped[UUID | None]
+    edited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    is_deleted: Mapped[bool] = mapped_column(default=False, server_default="false")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class MessageAttachment(Base):
+    """A file (from file-orchestrator) attached to a message.
+
+    file_id isn't a real foreign key — it points to a row in
+    file-orchestrator's own database, a different service entirely.
+    Same treatment as sender_id/created_by: a plain UUID column, not an
+    FK, since cross-service references can't be enforced at the DB level.
+    """
+
+    __tablename__ = "message_attachments"
+
+    message_id: Mapped[UUID] = mapped_column(
+        ForeignKey("messages.id"), primary_key=True
+    )
+    file_id: Mapped[UUID] = mapped_column(primary_key=True)
+
+
+class ChatReadState(Base):
+    """How far a user has read into a chat, for unread counts and receipts."""
+
+    __tablename__ = "chat_read_states"
+
+    chat_id: Mapped[UUID] = mapped_column(ForeignKey("chats.id"), primary_key=True)
+    user_id: Mapped[UUID] = mapped_column(primary_key=True)
+    last_read_message_id: Mapped[UUID | None] = mapped_column(ForeignKey("messages.id"))
+    last_read_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
 
 

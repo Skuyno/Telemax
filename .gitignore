@@ -16,3 +16,5 @@ __pycache__/
 bin/
 docs/
 docker-compose.override.yml
+!docker-compose.yml
+docker-compose*.yml

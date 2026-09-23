@@ -79,3 +79,49 @@ jobs:
       - name: Run tests
         working-directory: src/services/communication
         run: pytest -q
+  test-file-orchestrator:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: mysecretpassword
+          POSTGRES_DB: test_telemax_file_orchestrator
+        ports:
+          - 5430:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+    env:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: mysecretpassword
+      POSTGRES_DB: test_telemax_file_orchestrator
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        working-directory: src/services/file-orchestrator
+        run: pip install -r requirements.txt pytest pytest-asyncio httpx
+      - name: Run tests
+        working-directory: src/services/file-orchestrator
+        run: pytest -q
+  test-api-gateway:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        working-directory: src/services/api-gateway
+        run: pip install -r requirements.txt pytest pytest-asyncio
+      - name: Run tests
+        working-directory: src/services/api-gateway
+        env:
+          JWT_SECRET: test-secret-for-aboba-for-aboba-for-aboba-for-aboba-for-aboba-for-aboba
+        run: pytest -q
