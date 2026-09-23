@@ -173,7 +173,7 @@ defineEmits<{ edit: []; remove: [] }>()
   font-size: 13px;
   line-height: 1.5;
   color: var(--color-text);
-  white-space: pre-line;
+  white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 

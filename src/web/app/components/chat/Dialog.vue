@@ -20,7 +20,7 @@ const { uploadFile } = useFiles()
 const editing = ref<Message | null>(null)
 const uploads = ref<PendingUpload[]>([])
 const fileInput = ref<HTMLInputElement | null>(null)
-const messageInput = ref<HTMLInputElement | null>(null)
+const messageInput = ref<HTMLTextAreaElement | null>(null)
 
 const searchOpen = ref(false)
 const searchQuery = ref('')
@@ -102,6 +102,45 @@ async function onSend() {
     isSending.value = false
   }
 }
+
+function onEnter(event: KeyboardEvent) {
+  if (event.ctrlKey || event.metaKey || event.shiftKey) {
+    event.preventDefault()
+    insertNewline()
+    return
+  }
+  event.preventDefault()
+  onSend()
+}
+
+function insertNewline() {
+  const field = messageInput.value
+  if (!field) {
+    draft.value += '\n'
+    return
+  }
+
+  const start = field.selectionStart ?? draft.value.length
+  const end = field.selectionEnd ?? start
+  draft.value = `${draft.value.slice(0, start)}\n${draft.value.slice(end)}`
+
+  nextTick(() => {
+    field.selectionStart = start + 1
+    field.selectionEnd = start + 1
+    resizeInput()
+  })
+}
+
+function resizeInput() {
+  const field = messageInput.value
+  if (!field) return
+  field.style.height = 'auto'
+  field.style.height = `${Math.min(field.scrollHeight, 160)}px`
+}
+
+watch(draft, () => nextTick(resizeInput))
+
+onMounted(() => resizeInput())
 
 function startEdit(message: Message) {
   uploads.value = []
@@ -249,6 +288,7 @@ watch(
     searchOpen.value = false
     searchQuery.value = ''
     searchResults.value = []
+    nextTick(resizeInput)
     scrollToBottom()
   },
   { immediate: true },
@@ -422,15 +462,15 @@ watch(
       </button>
       <input ref="fileInput" class="dialog__file" type="file" multiple @change="onFilesChosen" />
 
-      <input
+      <textarea
         ref="messageInput"
         v-model="draft"
         class="dialog__input"
-        type="text"
+        rows="1"
         :placeholder="editing ? 'Новый текст сообщения' : 'Сообщение'"
         aria-label="Сообщение"
         @input="emit('typing')"
-        @keydown.enter="onSend"
+        @keydown.enter="onEnter"
         @keydown.esc="cancelEdit"
       />
 
@@ -640,7 +680,7 @@ watch(
 
 .dialog__composer {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   gap: 10px;
   flex: none;
   padding: 16px 20px;
@@ -650,9 +690,14 @@ watch(
 
 .dialog__input {
   height: 48px;
+  min-height: 48px;
+  max-height: 160px;
   flex: 1;
   min-width: 0;
-  padding: 0 18px;
+  padding: 14px 18px;
+  resize: none;
+  overflow-y: auto;
+  line-height: 1.5;
   background: var(--color-ground);
   border: 1px solid var(--chat-line);
   border-radius: var(--chat-radius-lg);
