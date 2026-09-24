@@ -94,6 +94,7 @@ tests/         интеграционные тесты чатов и истор�
 | `IDENTITY_URL` | нет | `http://identity:8000` | Адрес Identity Service |
 | `FILE_ORCHESTRATOR_URL` | нет | `http://file-orchestrator:8000` | Адрес File Orchestrator Service |
 | `NATS_PORT` | нет | `4222` | Порт NATS |
+| `SQL_ECHO` | нет | `false` | Логировать SQL-запросы SQLAlchemy (со значениями параметров — тексты сообщений; включать только локально для отладки) |
 
 Пример находится в `.env.example`.
 

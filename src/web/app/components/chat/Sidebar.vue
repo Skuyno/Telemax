@@ -95,6 +95,18 @@ onBeforeUnmount(() => clearTimeout(searchTimer))
             <path d="M14 5l4 4" />
           </svg>
         </button>
+        <NuxtLink
+          v-if="auth.user?.role === 'admin' || auth.user?.role === 'superuser'"
+          to="/administration"
+          class="sidebar__icon-btn"
+          aria-label="Администрирование"
+          title="Администрирование"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <path d="M12 2 4 6v6c0 5 3.4 8.6 8 10 4.6-1.4 8-5 8-10V6z" />
+            <path d="M9 12l2 2 4-4" />
+          </svg>
+        </NuxtLink>
         <NuxtLink to="/settings" class="sidebar__icon-btn" aria-label="Настройки">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
             <circle cx="12" cy="12" r="3" />

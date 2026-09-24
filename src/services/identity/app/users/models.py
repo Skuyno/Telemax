@@ -26,3 +26,7 @@ class User(Base):
         DateTime(timezone=True), server_default=func.now()
     )
     token_version: Mapped[int] = mapped_column(default=0, server_default="0")
+    # "superuser" | "admin" | "user". Not an enum column on purpose — same
+    # convention as other short fixed-vocabulary string fields in this
+    # codebase (e.g. Chat.type in communication).
+    role: Mapped[str] = mapped_column(String(16), default="user", server_default="user")

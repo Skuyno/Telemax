@@ -19,4 +19,4 @@
 
 ## Переменные окружения
 
-См. `.env.example` — `POSTGRES_*`. Остальные (`communication_url`, `seaweedfs_filer_url`, `seaweedfs_volume_url`, `nats_port`, `max_upload_size_bytes`, `upload_progress_interval_bytes`) имеют разумные дефолты в `app/config.py`.
+См. `.env.example` — `POSTGRES_*`. Остальные (`communication_url`, `seaweedfs_filer_url`, `seaweedfs_volume_url`, `nats_port`, `max_upload_size_bytes`, `upload_progress_interval_bytes`, `sql_echo`) имеют разумные дефолты в `app/config.py`. `sql_echo` включает логирование SQL-запросов SQLAlchemy (со значениями параметров) — по умолчанию выключено, включать только локально для отладки.

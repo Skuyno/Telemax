@@ -33,6 +33,19 @@ class Settings(BaseSettings):
     refresh_token_expire_days: int = 30
     seaweedfs_filer_url: str = "http://seaweedfs:8888"
     max_avatar_size_bytes: int = 5_242_880
+    # Off by default — logs raw SQL with bound parameter values (emails,
+    # password hashes included). Opt in locally via .env when debugging.
+    sql_echo: bool = False
+    # On by default (current behavior). Set false on a production deploy
+    # with invite-only/pre-provisioned accounts — mirrors the frontend's
+    # NUXT_PUBLIC_AUTH_NEW_USER, but enforced here too: hiding the button
+    # on the frontend alone wouldn't stop a direct POST /auth/register.
+    allow_registration: bool = True
+    # The one "superuser" account is auto-provisioned on startup if no
+    # superuser exists yet, using these credentials — change them via env
+    # before a real deploy, the defaults are for local dev only.
+    superuser_username: str = "admin"
+    superuser_password: str = "admin123"
 
     model_config = SettingsConfigDict(
         env_file=_find_env_file(),

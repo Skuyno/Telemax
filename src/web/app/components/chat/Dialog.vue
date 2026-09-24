@@ -18,9 +18,11 @@ const { editMessage, deleteMessage, searchMessages, loadUntil } = useChats()
 const { uploadFile } = useFiles()
 
 const editing = ref<Message | null>(null)
+const pendingRemoval = ref<Message | null>(null)
+const isRemoving = ref(false)
 const uploads = ref<PendingUpload[]>([])
 const fileInput = ref<HTMLInputElement | null>(null)
-const messageInput = ref<HTMLInputElement | null>(null)
+const messageInput = ref<HTMLTextAreaElement | null>(null)
 
 const searchOpen = ref(false)
 const searchQuery = ref('')
@@ -103,6 +105,45 @@ async function onSend() {
   }
 }
 
+function onEnter(event: KeyboardEvent) {
+  if (event.ctrlKey || event.metaKey || event.shiftKey) {
+    event.preventDefault()
+    insertNewline()
+    return
+  }
+  event.preventDefault()
+  onSend()
+}
+
+function insertNewline() {
+  const field = messageInput.value
+  if (!field) {
+    draft.value += '\n'
+    return
+  }
+
+  const start = field.selectionStart ?? draft.value.length
+  const end = field.selectionEnd ?? start
+  draft.value = `${draft.value.slice(0, start)}\n${draft.value.slice(end)}`
+
+  nextTick(() => {
+    field.selectionStart = start + 1
+    field.selectionEnd = start + 1
+    resizeInput()
+  })
+}
+
+function resizeInput() {
+  const field = messageInput.value
+  if (!field) return
+  field.style.height = 'auto'
+  field.style.height = `${Math.min(field.scrollHeight, 160)}px`
+}
+
+watch(draft, () => nextTick(resizeInput))
+
+onMounted(() => resizeInput())
+
 function startEdit(message: Message) {
   uploads.value = []
   editing.value = message
@@ -116,16 +157,38 @@ function cancelEdit() {
   draft.value = ''
 }
 
-async function onRemove(message: Message) {
-  if (!window.confirm('Удалить сообщение? Отменить это будет нельзя.')) return
+function onRemove(message: Message) {
+  pendingRemoval.value = message
+}
+
+async function confirmRemove() {
+  const message = pendingRemoval.value
+  if (!message || isRemoving.value) return
+
+  isRemoving.value = true
   sendError.value = ''
   try {
     await deleteMessage(props.chat.id, message.id)
     if (editing.value?.id === message.id) cancelEdit()
+    pendingRemoval.value = null
   } catch (e) {
     sendError.value = extractApiErrorMessage(e, 'Не удалось удалить сообщение')
+    pendingRemoval.value = null
+  } finally {
+    isRemoving.value = false
   }
 }
+
+function onRemovalKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape') pendingRemoval.value = null
+}
+
+watch(pendingRemoval, (message) => {
+  if (message) window.addEventListener('keydown', onRemovalKeydown)
+  else window.removeEventListener('keydown', onRemovalKeydown)
+})
+
+onBeforeUnmount(() => window.removeEventListener('keydown', onRemovalKeydown))
 
 function pickFiles() {
   if (!editing.value) fileInput.value?.click()
@@ -249,6 +312,7 @@ watch(
     searchOpen.value = false
     searchQuery.value = ''
     searchResults.value = []
+    nextTick(resizeInput)
     scrollToBottom()
   },
   { immediate: true },
@@ -422,15 +486,15 @@ watch(
       </button>
       <input ref="fileInput" class="dialog__file" type="file" multiple @change="onFilesChosen" />
 
-      <input
+      <textarea
         ref="messageInput"
         v-model="draft"
         class="dialog__input"
-        type="text"
+        rows="1"
         :placeholder="editing ? 'Новый текст сообщения' : 'Сообщение'"
         aria-label="Сообщение"
         @input="emit('typing')"
-        @keydown.enter="onSend"
+        @keydown.enter="onEnter"
         @keydown.esc="cancelEdit"
       />
 
@@ -456,6 +520,45 @@ watch(
         </svg>
       </button>
     </footer>
+
+    <Teleport to="body">
+      <Transition name="confirm">
+        <div
+          v-if="pendingRemoval"
+          class="confirm"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Удаление сообщения"
+          @click.self="pendingRemoval = null"
+        >
+          <div class="confirm__card">
+            <h2 class="confirm__title">Удалить сообщение?</h2>
+            <p class="confirm__text">Оно пропадёт у всех участников чата. Вернуть его не выйдет.</p>
+
+            <div class="confirm__actions">
+              <button type="button" class="confirm__btn" @click="pendingRemoval = null">
+                Отмена
+              </button>
+              <button
+                type="button"
+                class="confirm__btn is-danger"
+                :disabled="isRemoving"
+                @click="confirmRemove"
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                  <path d="M4 7h16" />
+                  <path d="M10 11v6" />
+                  <path d="M14 11v6" />
+                  <path d="M6 7l1 13h10l1-13" />
+                  <path d="M9 7V4h6v3" />
+                </svg>
+                {{ isRemoving ? 'Удаляем…' : 'Удалить' }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
   </section>
 </template>
 
@@ -640,7 +743,7 @@ watch(
 
 .dialog__composer {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   gap: 10px;
   flex: none;
   padding: 16px 20px;
@@ -650,9 +753,14 @@ watch(
 
 .dialog__input {
   height: 48px;
+  min-height: 48px;
+  max-height: 160px;
   flex: 1;
   min-width: 0;
-  padding: 0 18px;
+  padding: 14px 18px;
+  resize: none;
+  overflow-y: auto;
+  line-height: 1.5;
   background: var(--color-ground);
   border: 1px solid var(--chat-line);
   border-radius: var(--chat-radius-lg);
@@ -983,6 +1091,146 @@ watch(
 .dialog__chip-remove svg {
   width: 14px;
   height: 14px;
+}
+
+.confirm {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(7, 11, 28, 0.88);
+}
+
+.confirm__card {
+  width: 100%;
+  max-width: 400px;
+  padding: 26px 26px 22px;
+  background: var(--color-lift);
+  border: 1px solid var(--color-line);
+  border-radius: 18px;
+  box-shadow: var(--shadow-hard);
+}
+
+.confirm__title {
+  margin: 0 0 10px;
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 18px;
+  color: var(--color-text);
+}
+
+.confirm__text {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--color-text-muted);
+}
+
+.confirm__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 26px;
+}
+
+.confirm__btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 46px;
+  padding: 0 22px;
+  background: var(--color-ground);
+  border: 1px solid var(--chat-line);
+  border-radius: 14px;
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--color-text);
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.confirm__btn:hover:not(:disabled) {
+  background: var(--color-surface);
+  border-color: var(--color-line);
+}
+
+.confirm__btn.is-danger {
+  background: var(--color-error);
+  border-color: var(--color-error);
+  color: var(--color-ink);
+}
+
+.confirm__btn.is-danger:hover:not(:disabled) {
+  background: rgba(255, 107, 94, 0.85);
+  border-color: rgba(255, 107, 94, 0.85);
+}
+
+.confirm__btn svg {
+  width: 17px;
+  height: 17px;
+  flex: none;
+}
+
+.confirm__btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.confirm-enter-active {
+  transition: opacity 0.18s ease;
+}
+
+.confirm-leave-active {
+  transition: opacity 0.15s ease;
+}
+
+.confirm-enter-from,
+.confirm-leave-to {
+  opacity: 0;
+}
+
+.confirm-enter-active .confirm__card {
+  animation: confirm-pop 0.22s cubic-bezier(0.2, 0.9, 0.3, 1.2);
+}
+
+.confirm-leave-active .confirm__card {
+  transition:
+    transform 0.15s ease,
+    opacity 0.15s ease;
+}
+
+.confirm-leave-to .confirm__card {
+  opacity: 0;
+  transform: scale(0.96);
+}
+
+@keyframes confirm-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.9) translateY(12px);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .confirm-enter-active .confirm__card,
+  .confirm-leave-active .confirm__card {
+    animation: none;
+    transition: none;
+  }
 }
 
 @media (max-width: 900px) {

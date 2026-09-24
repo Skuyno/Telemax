@@ -4,7 +4,7 @@ import type { UserSettings } from '~/types/settings'
 const auth = useAuthStore()
 const settingsStore = useSettingsStore()
 const { load, update } = useSettings()
-const { logout, updateProfile, uploadAvatar, removeAvatar } = useAuth()
+const { logout, updateProfile, uploadAvatar, removeAvatar, resetPassword } = useAuth()
 
 const AVATAR_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
 const AVATAR_MAX_BYTES = 5 * 1024 * 1024
@@ -86,7 +86,10 @@ onMounted(() => {
   load().catch(() => {})
 })
 
-onBeforeUnmount(() => clearTimeout(savedTimer))
+onBeforeUnmount(() => {
+  clearTimeout(savedTimer)
+  clearTimeout(passwordSavedTimer)
+})
 
 watch(
   () => settingsStore.data,
@@ -153,6 +156,45 @@ async function onSave() {
     else saveError.value = extractApiErrorMessage(e, 'Не удалось сохранить настройки')
   } finally {
     isSaving.value = false
+  }
+}
+
+/** Отдельный флоу от «Сохранить» выше: своя валидация, своя кнопка, никак
+ * не завязан на остальной черновик формы. */
+const passwordDraft = reactive({ newPassword: '', confirmPassword: '' })
+const isPasswordBusy = ref(false)
+const passwordError = ref('')
+const passwordSaved = ref(false)
+let passwordSavedTimer: ReturnType<typeof setTimeout> | undefined
+
+const passwordFieldsFilled = computed(
+  () => passwordDraft.newPassword.length > 0 || passwordDraft.confirmPassword.length > 0,
+)
+
+async function onResetPassword() {
+  passwordError.value = ''
+
+  if (passwordDraft.newPassword.length < 8) {
+    passwordError.value = 'Пароль должен быть не короче 8 символов'
+    return
+  }
+  if (passwordDraft.newPassword !== passwordDraft.confirmPassword) {
+    passwordError.value = 'Пароли не совпадают'
+    return
+  }
+
+  isPasswordBusy.value = true
+  try {
+    await resetPassword(passwordDraft.newPassword)
+    passwordDraft.newPassword = ''
+    passwordDraft.confirmPassword = ''
+    passwordSaved.value = true
+    clearTimeout(passwordSavedTimer)
+    passwordSavedTimer = setTimeout(() => (passwordSaved.value = false), 2000)
+  } catch (e) {
+    passwordError.value = extractApiErrorMessage(e, 'Не удалось сменить пароль')
+  } finally {
+    isPasswordBusy.value = false
   }
 }
 
@@ -332,6 +374,54 @@ async function onLogout() {
           </div>
 
           <p v-else class="settings-note">Загрузка…</p>
+
+          <h3 class="settings-section">Пароль</h3>
+
+          <div class="fields">
+            <label class="field">
+              <span class="field__label">Новый пароль</span>
+              <span class="field__control is-editable">
+                <input
+                  v-model="passwordDraft.newPassword"
+                  class="field__input"
+                  type="password"
+                  minlength="8"
+                  maxlength="256"
+                  autocomplete="new-password"
+                  placeholder="Не короче 8 символов"
+                  :disabled="isPasswordBusy"
+                />
+              </span>
+            </label>
+
+            <label class="field">
+              <span class="field__label">Повтор пароля</span>
+              <span class="field__control is-editable">
+                <input
+                  v-model="passwordDraft.confirmPassword"
+                  class="field__input"
+                  type="password"
+                  minlength="8"
+                  maxlength="256"
+                  autocomplete="new-password"
+                  :disabled="isPasswordBusy"
+                />
+              </span>
+            </label>
+          </div>
+
+          <div class="password-actions">
+            <button
+              type="button"
+              class="save__button"
+              :disabled="!passwordFieldsFilled || isPasswordBusy"
+              @click="onResetPassword"
+            >
+              {{ isPasswordBusy ? 'Меняем…' : 'Сменить пароль' }}
+            </button>
+            <span v-if="passwordError" class="save__status is-error">{{ passwordError }}</span>
+            <span v-else-if="passwordSaved" class="save__status">Пароль изменён</span>
+          </div>
         </div>
 
         <footer class="settings-main__footer">
@@ -720,6 +810,13 @@ async function onLogout() {
 
 .settings-section {
   margin: 32px 0 4px;
+}
+
+.password-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 20px;
 }
 
 .toggles > :deep(.toggle-row) {
