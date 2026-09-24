@@ -3,6 +3,12 @@ definePageMeta({ layout: 'auth' })
 
 type Mode = 'login' | 'register'
 
+const config = useRuntimeConfig()
+// Self-service registration can be switched off for a production deploy
+// (invite-only / accounts provisioned some other way) — login-only then,
+// regardless of what mode the URL or a stale click might otherwise ask for.
+const canRegister = config.public.authNewUser
+
 const mode = ref<Mode>('login')
 const username = ref('')
 const password = ref('')
@@ -13,6 +19,7 @@ const errorMessage = ref('')
 const { login, register } = useAuth()
 
 function switchMode(next: Mode) {
+  if (next === 'register' && !canRegister) return
   if (mode.value === next) return
   mode.value = next
   errorMessage.value = ''
@@ -21,6 +28,8 @@ function switchMode(next: Mode) {
 
 async function onSubmit() {
   errorMessage.value = ''
+
+  if (mode.value === 'register' && !canRegister) return
 
   if (mode.value === 'register' && password.value !== passwordConfirm.value) {
     errorMessage.value = 'Пароли не совпадают'
@@ -60,7 +69,7 @@ async function onSubmit() {
       <div class="auth-card">
         <h2 class="auth-card__title">{{ mode === 'login' ? 'Вход' : 'Регистрация' }}</h2>
 
-        <div class="auth-tabs" role="tablist">
+        <div v-if="canRegister" class="auth-tabs" role="tablist">
           <button
             type="button"
             class="auth-tabs__item"
@@ -138,7 +147,7 @@ async function onSubmit() {
           <p v-if="errorMessage" class="auth-error">{{ errorMessage }}</p>
         </form>
 
-        <p class="auth-switch">
+        <p v-if="canRegister" class="auth-switch">
           <template v-if="mode === 'login'">
             Нет аккаунта?
             <button type="button" class="auth-switch__link" @click="switchMode('register')">
