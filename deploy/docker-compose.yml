@@ -155,6 +155,14 @@ services:
     container_name: nginx
     ports:
       - "80:80"
+      - "443:443"
+    volumes:
+      # Shared with the certbot container: ACME-challenge files (for
+      # issuing/renewing) and the certificate itself once issued. On a
+      # local/no-domain setup these just sit empty, unused — nginx.conf
+      # there has no 443 server block referencing them.
+      - certbot_www:/var/www/certbot
+      - certbot_conf:/etc/letsencrypt:ro
     depends_on:
       - web
       - api-gateway
@@ -163,3 +171,5 @@ services:
 volumes:
   pgdata:
   seaweedfs_data:
+  certbot_www:
+  certbot_conf:
