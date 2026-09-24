@@ -1,4 +1,4 @@
-"""Configuration module for api-gateway service."""
+"""Configuration module for administration service."""
 
 from pathlib import Path
 
@@ -21,12 +21,7 @@ def _find_env_file() -> Path | None:
 class Settings(BaseSettings):
     """Application configuration settings loaded from environment variables."""
 
-    jwt_secret: str
-    jwt_algorithm: str = "HS256"
     identity_url: str = "http://identity:8000"
-    communication_url: str = "http://communication:8000"
-    file_orchestrator_url: str = "http://file-orchestrator:8000"
-    administration_url: str = "http://administration:8000"
 
     model_config = SettingsConfigDict(
         env_file=_find_env_file(),

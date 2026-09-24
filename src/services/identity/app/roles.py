@@ -1,4 +1,11 @@
-"""Role constants and role-based account management rules."""
+"""Role constants and role-based account management rules.
+
+The actual permission decisions (who may create/delete which role) are
+made by the `administration` service, which keeps its own copy of
+MANAGEABLE_ROLES — identity has no user-facing account-management
+endpoints of its own anymore, only internal ones that trust the caller.
+Keep the two copies in sync if this table ever changes.
+"""
 
 SUPERUSER = "superuser"
 ADMIN = "admin"

@@ -7,11 +7,10 @@
 ```text
 app/
   users/       модели, схемы, бизнес-логика и HTTP-маршруты
-  admin/       маршруты управления аккаунтами (создание/удаление админов и юзеров)
   settings/    глобальные настройки пользователя, независимо от users/
-  internal/    маршруты для других сервисов
+  internal/    маршруты для других сервисов, включая управление аккаунтами
   health/      проверка PostgreSQL
-  roles.py     константы ролей и правила «кто кем может управлять»
+  roles.py     константы ролей (каноническая копия — вторая в administration)
   config.py    конфигурация из окружения
   database.py  SQLAlchemy engine и фабрика сессий
 migrations/    миграции Alembic
@@ -33,24 +32,24 @@ tests/         тесты аутентификации, токенов и пои
 | `POST /users/search` | Поиск пользователей по тегу/email/телефону/имени | через API Gateway |
 | `GET /me/settings` | Настройки текущего пользователя | через API Gateway |
 | `PATCH /me/settings` | Изменить настройки (например, `notifications_enabled`, `accept_calls`) | через API Gateway |
-| `GET /internal/users/{id}` | Проверка существования пользователя | внутренний |
+| `GET /internal/users/{id}` | Профиль пользователя (включая роль) | внутренний |
 | `GET /health/db` | Проверка подключения к БД | внутренний |
-| `POST /admin/accounts` | Создать admin- или user-аккаунт | admin/superuser |
-| `DELETE /admin/accounts/{id}` | Удалить аккаунт | admin/superuser |
-| `GET /admin/accounts` | Список аккаунтов (пагинация `limit`/`offset`) | admin/superuser |
-| `GET /admin/accounts/username-available?username=...` | Проверка занятости логина (для формы создания аккаунта в реальном времени) | admin/superuser |
+| `POST /internal/accounts` | Создать admin- или user-аккаунт (без проверки прав — их уже проверил вызывающий) | внутренний |
+| `DELETE /internal/accounts/{id}?caller_id=...` | Удалить аккаунт (проверяет только неснимаемые инварианты — см. «Роли») | внутренний |
+| `GET /internal/accounts` | Список аккаунтов (пагинация `limit`/`offset`) | внутренний |
+| `GET /internal/accounts/username-available?username=...` | Проверка занятости логина | внутренний |
 
 Точные схемы запросов и ответов доступны в Swagger UI по `/docs` и в OpenAPI JSON по `/openapi.json` при запущенном сервисе.
 
+**Публичного `/admin/...` API у identity больше нет** — управление аккаунтами (создание/удаление, с проверкой того, кто кем может управлять) теперь отдельный сервис `administration`, см. его README. Identity лишь исполняет запрос через `/internal/accounts/...`, доверяя, что `administration` уже проверил роль вызывающего.
+
 ## Роли
 
-Три роли, хранятся в `users.role`: `superuser`, `admin`, `user`.
+Три роли, хранятся в `users.role`: `superuser`, `admin`, `user`. Кто кем может управлять — решает `administration` (`app/roles.py` там); identity хранит данные и обеспечивает только неснимаемые инварианты, которые должны выполняться независимо от того, кто спрашивает:
 
-- **superuser** — единственный аккаунт, создаётся автоматически при первом старте сервиса (см. `ensure_superuser_seeded` в `app/main.py`) с логином/паролем из `SUPERUSER_USERNAME`/`SUPERUSER_PASSWORD` (по умолчанию `admin`/`admin` — обязательно сменить перед реальным деплоем). Может создавать и удалять `admin`- и `user`-аккаунты. Его самого не может удалить никто, в том числе он сам — эндпоинт `DELETE /admin/accounts/{id}` всегда отвечает `403` на цель с ролью `superuser`.
-- **admin** — может создавать и удалять только `user`-аккаунты (`403` при попытке создать/удалить admin или superuser).
-- **user** — обычный аккаунт, создаётся через `POST /auth/register` (самостоятельная регистрация никогда не создаёт admin/superuser) или через `POST /admin/accounts` от имени admin/superuser. Не имеет доступа ни к одному `/admin/...` маршруту (`403`).
-
-Правила «кто кем может управлять» — в `app/roles.py` (`MANAGEABLE_ROLES`). Удалить собственный аккаунт через `/admin/accounts/{id}` нельзя (`400`) — это не про самих себя, а про управление чужими.
+- **superuser** — единственный аккаунт, создаётся автоматически при первом старте сервиса (см. `ensure_superuser_seeded` в `app/main.py`) с логином/паролем из `SUPERUSER_USERNAME`/`SUPERUSER_PASSWORD` (по умолчанию `admin`/`admin` — обязательно сменить перед реальным деплоем). Его нельзя удалить никому и никогда — `DELETE /internal/accounts/{id}` всегда отвечает `403` на цель с ролью `superuser`, вне зависимости от того, кто и с каким `caller_id` спрашивает.
+- Аккаунт не может удалить сам себя через `DELETE /internal/accounts/{id}?caller_id=...` (`400`, если `id == caller_id`) — тоже проверяется здесь, а не в `administration`.
+- **user** — обычный аккаунт, создаётся через `POST /auth/register` (самостоятельная регистрация никогда не создаёт admin/superuser) или через `administration`.
 
 ## Токены
 

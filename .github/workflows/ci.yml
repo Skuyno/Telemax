@@ -125,3 +125,16 @@ jobs:
         env:
           JWT_SECRET: test-secret-for-aboba-for-aboba-for-aboba-for-aboba-for-aboba-for-aboba
         run: pytest -q
+  test-administration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        working-directory: src/services/administration
+        run: pip install -r requirements.txt pytest pytest-asyncio
+      - name: Run tests
+        working-directory: src/services/administration
+        run: pytest -q

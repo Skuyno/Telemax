@@ -54,8 +54,10 @@ def resolve_target(path: str) -> str:
         HTTPException: 404 if the path doesn't belong to any service.
     """
     segment = path.split("/", 1)[0]
-    if segment in ("auth", "users", "me", "admin", "password"):
+    if segment in ("auth", "users", "me", "password"):
         return settings.identity_url
+    if segment == "admin":
+        return settings.administration_url
     if segment == "chats":
         return settings.communication_url
     if segment == "files":

@@ -10,7 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.roles import MANAGEABLE_ROLES, SUPERUSER, USER
+from app.roles import SUPERUSER, USER
 from app.users import repository as users_repository
 from app.users import storage as avatar_storage
 from app.users.models import User
@@ -85,30 +85,26 @@ async def ensure_superuser_seeded(db: AsyncSession) -> None:
         )
 
 
-async def create_account(
-    db: AsyncSession, caller: User, data: CreateAccountRequest
-) -> User:
-    """Create an admin or user account, as an admin-management action.
+async def create_account(db: AsyncSession, data: CreateAccountRequest) -> User:
+    """Create an admin or user account (internal — no permission check).
 
-    Unlike self-service registration, this can create admin accounts (for
-    a superuser caller) and is itself gated by the caller's own role.
+    Called by the administration service, which has already verified the
+    requesting user's role is allowed to create this target role — this
+    layer only enforces what CreateAccountRequest.role's own pattern
+    already restricts: the target can never be "superuser" via this path,
+    regardless of who's asking. Unlike self-service registration, this
+    can produce an admin account.
 
     Args:
         db: Async database session.
-        caller: The authenticated caller creating the account.
         data: Username, password, and the role to assign.
 
     Returns:
         User: The created account.
 
     Raises:
-        HTTPException: 403 if the caller's role isn't allowed to create
-            an account with the requested role, 409 if the username is
-            already taken.
+        HTTPException: 409 if the username is already taken.
     """
-    if data.role not in MANAGEABLE_ROLES.get(caller.role, set()):
-        raise HTTPException(status_code=403, detail="Cannot create this role")
-
     try:
         return await users_repository.create_user(
             db,
@@ -121,29 +117,34 @@ async def create_account(
         raise HTTPException(status_code=409, detail="Username already taken")
 
 
-async def delete_account(db: AsyncSession, caller: User, target_id: UUID) -> None:
-    """Delete an admin or user account, as an admin-management action.
+async def delete_account(db: AsyncSession, caller_id: UUID, target_id: UUID) -> None:
+    """Delete an admin or user account (internal — no role-permission check).
+
+    Called by the administration service, which has already verified the
+    requesting user's role is allowed to delete this target's role. Two
+    invariants are still enforced here regardless, since they're
+    properties of the system, not a matter of "who's allowed": the
+    superuser account can never be deleted by anyone, and an account
+    can't delete itself through this action.
 
     Args:
         db: Async database session.
-        caller: The authenticated caller deleting the account.
+        caller_id: Id of the account requesting the deletion.
         target_id: Id of the account to delete.
 
     Raises:
-        HTTPException: 404 if the target doesn't exist, 400 if the caller
-            targets their own account, 403 if the caller's role isn't
-            allowed to delete an account with the target's role (this
-            also covers the superuser, which is never manageable by
-            anyone).
+        HTTPException: 400 if the caller targets their own account, 404
+            if the target doesn't exist, 403 if the target is the
+            superuser.
     """
-    if target_id == caller.id:
+    if target_id == caller_id:
         raise HTTPException(status_code=400, detail="Cannot delete your own account")
 
     target = await users_repository.get_user_by_id(db, target_id)
     if target is None:
         raise HTTPException(status_code=404, detail="Account not found")
 
-    if target.role not in MANAGEABLE_ROLES.get(caller.role, set()):
+    if target.role == SUPERUSER:
         raise HTTPException(status_code=403, detail="Cannot delete this account")
 
     await users_repository.delete_user(db, target)
