@@ -19,6 +19,7 @@ from app.users.schemas import (
     CreateAccountRequest,
     LoginRequest,
     RegisterRequest,
+    ResetPasswordRequest,
     UpdateProfileRequest,
 )
 from app.users.security import hash_password, verify_password
@@ -229,6 +230,30 @@ async def change_password(
     if not verify_password(data.current_password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid current password")
 
+    await users_repository.update_user(
+        db,
+        user,
+        {
+            "password_hash": hash_password(data.new_password),
+            "token_version": user.token_version + 1,
+        },
+    )
+
+
+async def reset_password(
+    db: AsyncSession, user: User, data: ResetPasswordRequest
+) -> None:
+    """Reset a user's own password from the settings page, no current password needed.
+
+    Same "log out other sessions" effect as change_password (bumps
+    token_version) — deliberately simpler flow, not a weaker one: it
+    still requires the caller to already hold a valid access token.
+
+    Args:
+        db: Async database session.
+        user: The user resetting their password.
+        data: The new password.
+    """
     await users_repository.update_user(
         db,
         user,

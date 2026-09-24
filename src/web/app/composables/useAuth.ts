@@ -42,6 +42,19 @@ export function useAuth() {
     applyUser(await api<UserResponse>('/me/avatar', { method: 'DELETE' }))
   }
 
+  /**
+   * Resets the password from the settings page — no current password
+   * needed, unlike a real "change password" flow would require. Other
+   * sessions get logged out (server invalidates their refresh tokens);
+   * this one keeps working until its access token naturally expires.
+   */
+  async function resetPassword(newPassword: string) {
+    await api('/password/reset', {
+      method: 'POST',
+      body: { new_password: newPassword },
+    })
+  }
+
   async function login(username: string, password: string) {
     const tokens = await api<TokenResponse>('/auth/login', {
       method: 'POST',
@@ -65,5 +78,14 @@ export function useAuth() {
     useSettingsStore().reset()
   }
 
-  return { login, register, logout, fetchMe, updateProfile, uploadAvatar, removeAvatar }
+  return {
+    login,
+    register,
+    logout,
+    fetchMe,
+    updateProfile,
+    uploadAvatar,
+    removeAvatar,
+    resetPassword,
+  }
 }

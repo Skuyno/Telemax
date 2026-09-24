@@ -93,6 +93,46 @@ async def test_change_password_wrong_current_password(client: AsyncClient):
     assert resp.status_code == 401
 
 
+async def test_reset_password_success_and_relogin(client: AsyncClient):
+    """Resetting the password (no current password) lets login with the new one."""
+    token = await _register_and_login(client, "aboba", "abobas123")
+
+    resp = await client.post(
+        "/password/reset",
+        json={"new_password": "newpassword1"},
+        headers={"X-User-Id": _user_id_from_token(token)},
+    )
+    assert resp.status_code == 204
+
+    resp = await client.post(
+        "/auth/login", json={"username": "aboba", "password": "newpassword1"}
+    )
+    assert resp.status_code == 200
+
+    resp = await client.post(
+        "/auth/login", json={"username": "aboba", "password": "abobas123"}
+    )
+    assert resp.status_code == 401
+
+
+async def test_reset_password_invalidates_refresh_tokens(client: AsyncClient):
+    """Resetting the password bumps token_version, like a change-password does."""
+    token = await _register_and_login(client, "aboba", "abobas123")
+    old_login = await client.post(
+        "/auth/login", json={"username": "aboba", "password": "abobas123"}
+    )
+    old_refresh_token = old_login.json()["refresh_token"]
+
+    await client.post(
+        "/password/reset",
+        json={"new_password": "newpassword1"},
+        headers={"X-User-Id": _user_id_from_token(token)},
+    )
+
+    resp = await client.post("/auth/refresh", json={"refresh_token": old_refresh_token})
+    assert resp.status_code == 401
+
+
 def _user_id_from_token(token: str) -> str:
     """Decode the access token's `sub` claim without verifying the signature.
 

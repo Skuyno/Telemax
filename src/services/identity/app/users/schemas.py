@@ -95,6 +95,17 @@ class ChangePasswordRequest(BaseModel):
     new_password: str = Field(min_length=8, max_length=256)
 
 
+class ResetPasswordRequest(BaseModel):
+    """Request to reset the current user's own password from settings.
+
+    Unlike ChangePasswordRequest, this doesn't require the current
+    password — a deliberate, simpler flow for the settings page. The
+    caller must still be authenticated (a valid access token).
+    """
+
+    new_password: str = Field(min_length=8, max_length=256)
+
+
 class CreateAccountRequest(BaseModel):
     """Request to create an admin or user account (an admin-management action).
 
