@@ -170,6 +170,11 @@ jobs:
           clean: false
       - name: Rebuild and restart containers
         working-directory: deploy
-        run: docker compose up -d --build
+        # docker-compose-main.yml is server-local (gitignored, created by
+        # hand — see its own header comment) and holds the prod-only
+        # overrides (closed ports etc.). Without -f here, CI would only
+        # ever apply docker-compose.yml and silently undo those overrides
+        # on every auto-deploy.
+        run: docker compose -f docker-compose.yml -f docker-compose-main.yml up -d --build
       - name: Drop dangling images from previous builds
         run: docker image prune -f
