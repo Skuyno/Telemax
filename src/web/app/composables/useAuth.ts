@@ -12,6 +12,7 @@ export function useAuth() {
       email: me.email,
       avatarUrl: me.avatar_url,
       createdAt: me.created_at,
+      role: me.role,
     })
   }
 

@@ -184,3 +184,38 @@ async def test_list_accounts_requires_admin_or_superuser(
     )
     assert allowed.status_code == 200
     assert isinstance(allowed.json(), list)
+
+
+async def test_username_available_check(client: AsyncClient, db_session_maker):
+    """Reports a free username as available, a taken one as not."""
+    admin_id = await _create_account(db_session_maker, ADMIN)
+    await _create_account(db_session_maker, USER, username="taken")
+
+    free = await client.get(
+        "/admin/accounts/username-available",
+        params={"username": "free"},
+        headers={"X-User-Id": str(admin_id)},
+    )
+    assert free.status_code == 200
+    assert free.json()["available"] is True
+
+    taken = await client.get(
+        "/admin/accounts/username-available",
+        params={"username": "taken"},
+        headers={"X-User-Id": str(admin_id)},
+    )
+    assert taken.json()["available"] is False
+
+
+async def test_username_available_requires_admin_or_superuser(
+    client: AsyncClient, db_session_maker
+):
+    """A plain user can't probe username availability either."""
+    user_id = await _create_account(db_session_maker, USER)
+
+    resp = await client.get(
+        "/admin/accounts/username-available",
+        params={"username": "whatever"},
+        headers={"X-User-Id": str(user_id)},
+    )
+    assert resp.status_code == 403

@@ -12,9 +12,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_async_db, require_role
 from app.roles import ADMIN, SUPERUSER
+from app.users import repository as users_repository
 from app.users import service as users_service
 from app.users.models import User
-from app.users.schemas import CreateAccountRequest, UserResponse
+from app.users.schemas import (
+    CreateAccountRequest,
+    UsernameAvailableResponse,
+    UserResponse,
+)
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
 
@@ -68,6 +73,26 @@ async def delete_account(
             the caller can't delete this role, 404 if not found.
     """
     await users_service.delete_account(db, caller, user_id)
+
+
+@router.get("/accounts/username-available")
+async def check_username_available(
+    username: str = Query(min_length=3, max_length=32),
+    _: User = Depends(require_role(SUPERUSER, ADMIN)),
+    db: AsyncSession = Depends(get_async_db),
+) -> UsernameAvailableResponse:
+    """Check if a username is free, for real-time validation while typing.
+
+    Args:
+        username: Username to check.
+        _: The authenticated caller (must be admin or superuser).
+        db: Async database session.
+
+    Returns:
+        UsernameAvailableResponse: Whether the username is free to use.
+    """
+    existing = await users_repository.get_user_by_username(db, username)
+    return UsernameAvailableResponse(available=existing is None)
 
 
 @router.get("/accounts")

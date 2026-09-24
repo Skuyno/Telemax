@@ -119,6 +119,12 @@ class CreateAccountRequest(BaseModel):
     role: str = Field(pattern="^(admin|user)$")
 
 
+class UsernameAvailableResponse(BaseModel):
+    """Whether a username is free to register/create an account with."""
+
+    available: bool
+
+
 class UserSearchRequest(BaseModel):
     """Search request for the user directory.
 

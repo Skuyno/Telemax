@@ -1,3 +1,5 @@
+export type Role = 'superuser' | 'admin' | 'user'
+
 export interface User {
   id: string
   username: string
@@ -5,6 +7,7 @@ export interface User {
   email: string | null
   avatarUrl: string | null
   createdAt: string
+  role: Role
 }
 
 export interface AuthTokens {
@@ -19,7 +22,7 @@ export interface TokenResponse {
   token_type: string
 }
 
-/** Raw response shape from GET /me */
+/** Raw response shape from GET /me and the /admin/accounts endpoints */
 export interface UserResponse {
   id: string
   username: string
@@ -27,4 +30,5 @@ export interface UserResponse {
   display_name: string | null
   avatar_url: string | null
   created_at: string
+  role: Role
 }

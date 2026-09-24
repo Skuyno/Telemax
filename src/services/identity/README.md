@@ -38,6 +38,7 @@ tests/         тесты аутентификации, токенов и пои
 | `POST /admin/accounts` | Создать admin- или user-аккаунт | admin/superuser |
 | `DELETE /admin/accounts/{id}` | Удалить аккаунт | admin/superuser |
 | `GET /admin/accounts` | Список аккаунтов (пагинация `limit`/`offset`) | admin/superuser |
+| `GET /admin/accounts/username-available?username=...` | Проверка занятости логина (для формы создания аккаунта в реальном времени) | admin/superuser |
 
 Точные схемы запросов и ответов доступны в Swagger UI по `/docs` и в OpenAPI JSON по `/openapi.json` при запущенном сервисе.
 
