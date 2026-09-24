@@ -57,6 +57,7 @@ tests/         тесты аутентификации, токенов и пои
 | `JWT_ALGORITHM` | нет | `HS256` | Алгоритм подписи JWT |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | нет | `15` | Срок жизни access JWT в минутах |
 | `REFRESH_TOKEN_EXPIRE_DAYS` | нет | `30` | Срок жизни refresh JWT в днях |
+| `SQL_ECHO` | нет | `false` | Логировать SQL-запросы SQLAlchemy (со значениями параметров — email, хэши паролей; включать только локально для отладки) |
 
 Пример находится в `.env.example`.
 

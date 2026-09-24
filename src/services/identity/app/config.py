@@ -33,6 +33,9 @@ class Settings(BaseSettings):
     refresh_token_expire_days: int = 30
     seaweedfs_filer_url: str = "http://seaweedfs:8888"
     max_avatar_size_bytes: int = 5_242_880
+    # Off by default — logs raw SQL with bound parameter values (emails,
+    # password hashes included). Opt in locally via .env when debugging.
+    sql_echo: bool = False
 
     model_config = SettingsConfigDict(
         env_file=_find_env_file(),
