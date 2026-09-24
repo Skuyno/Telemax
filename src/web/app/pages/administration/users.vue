@@ -159,11 +159,21 @@ onBeforeUnmount(() => clearTimeout(usernameCheckTimer))
 
         <label v-if="canPickRole" class="field">
           <span class="field__label">Роль</span>
-          <span class="field__control is-editable">
-            <select v-model="role" class="field__input" :disabled="isSubmitting">
+          <span class="field__control field__control--select is-editable">
+            <select v-model="role" class="field__input field__select" :disabled="isSubmitting">
               <option value="user">Пользователь</option>
               <option value="admin">Администратор</option>
             </select>
+            <svg
+              class="field__select-arrow"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              aria-hidden="true"
+            >
+              <path d="M6 9l6 6 6-6" />
+            </svg>
           </span>
         </label>
 
@@ -310,6 +320,38 @@ onBeforeUnmount(() => clearTimeout(usernameCheckTimer))
 
 .field__control.is-invalid {
   border-color: var(--color-error);
+}
+
+.field__control--select {
+  position: relative;
+  padding-right: 12px;
+}
+
+.field__select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 24px;
+  cursor: pointer;
+  /* color-scheme makes Chromium/Firefox render the native <option> list
+     with a dark palette instead of the OS-default white one — the
+     control itself is already styled below regardless of browser. */
+  color-scheme: dark;
+}
+
+.field__select option {
+  background: var(--color-lift);
+  color: var(--color-text);
+}
+
+.field__select-arrow {
+  position: absolute;
+  right: 14px;
+  top: 50%;
+  width: 16px;
+  height: 16px;
+  color: var(--color-text-dim);
+  pointer-events: none;
+  transform: translateY(-50%);
 }
 
 .field__input {
