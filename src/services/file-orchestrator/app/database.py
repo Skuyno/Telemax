@@ -9,8 +9,10 @@ from sqlalchemy.orm import DeclarativeBase
 
 from app.config import settings
 
-# Async database engine.
-engine = create_async_engine(settings.database_url, echo=True)
+# Async database engine. echo is off by default: SQLAlchemy logs bound
+# parameter values along with each statement, which would otherwise put
+# filenames and other file metadata straight into the logs.
+engine = create_async_engine(settings.database_url, echo=settings.sql_echo)
 
 # Async session factory.
 async_session_maker = async_sessionmaker(engine, expire_on_commit=False)

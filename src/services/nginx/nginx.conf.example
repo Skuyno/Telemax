@@ -1,0 +1,119 @@
+# Пример конфигурации для прод-деплоя с реальным доменом и HTTPS.
+#
+# Отличия от рабочего nginx.conf (который используется в docker-compose
+# и рассчитан на локальный запуск по http://localhost):
+#   1. server_name — вместо "_" (принимает любой Host) указан конкретный домен.
+#   2. Добавлен HTTPS с сертификатом (Let's Encrypt/certbot или свой).
+#   3. HTTP-сервер редиректит на HTTPS, кроме ACME-challenge пути для certbot.
+#   4. Немного продовых мелочей: server_tokens off, HSTS, современные TLS-протоколы.
+#
+# Как применить:
+#   - Заменить YOUR_DOMAIN на реальный домен (без протокола, без www — или
+#     перечислить оба через пробел в server_name, как показано ниже).
+#   - Получить сертификат (см. блок про certbot ниже) и поправить пути
+#     ssl_certificate/ssl_certificate_key, если они отличаются.
+#   - Скопировать этот файл поверх nginx.conf (или подключить вместо него
+#     в Dockerfile/volume) и пересобрать образ nginx.
+#   - Убедиться, что 80 и 443 открыты наружу на сервере (firewall/security group).
+
+# HTTP: только для ACME-challenge (продление сертификата) и редиректа на HTTPS.
+server {
+    listen 80;
+    server_name YOUR_DOMAIN www.YOUR_DOMAIN;
+
+    # Certbot кладёt сюда challenge-файлы при выпуске/продлении сертификата
+    # (webroot-режим). Volume с этой директорией должен быть общим между
+    # nginx и certbot-контейнером/процессом.
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name YOUR_DOMAIN www.YOUR_DOMAIN;
+
+    # Пути — стандартные для certbot (`certbot certonly --webroot ...`).
+    # Если сертификат от другого источника — поправить на свои пути.
+    ssl_certificate     /etc/letsencrypt/live/YOUR_DOMAIN/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/YOUR_DOMAIN/privkey.pem;
+
+    # Современные протоколы/шифры — TLS 1.0/1.1 и слабые шифры сознательно
+    # исключены (это не про совместимость со старыми браузерами, а про то,
+    # что через этот origin идёт логин/пароли/токены).
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+    ssl_prefer_server_ciphers on;
+
+    # Браузер будет сам подставлять https:// для этого домена, даже если
+    # где-то в приложении/закладке остался http-адрес. max-age — 180 дней;
+    # включать только когда уверены, что HTTPS будет работать постоянно —
+    # разлогинить браузеры от HSTS potом сложнее, чем включить.
+    add_header Strict-Transport-Security "max-age=15552000; includeSubDomains" always;
+
+    # Не светить версию nginx в заголовке Server — не защита сама по себе,
+    # но и незачем отдавать бесплатную подсказку.
+    server_tokens off;
+
+    # См. комментарий в nginx.conf — file-orchestrator сам решает, сколько
+    # разрешено загружать, nginx не должен резать раньше него.
+    client_max_body_size 0;
+
+    resolver 127.0.0.11 valid=10s;
+
+    location /api/ {
+        set $api_upstream api-gateway:8000;
+        rewrite ^/api/(.*)$ /$1 break;
+        proxy_pass http://$api_upstream;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location /ws {
+        set $ws_upstream ws-gateway:4333;
+        proxy_pass http://$ws_upstream;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_read_timeout 3600s;
+    }
+
+    location / {
+        set $web_upstream web:3000;
+        proxy_pass http://$web_upstream;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+
+# ---
+# Как получить сертификат (Let's Encrypt, webroot-режим, без даунтайма):
+#
+# 1. Сначала закинуть на сервер ТОЛЬКО первый (HTTP) server-блок выше —
+#    без него certbot не сможет пройти HTTP-01 challenge, а второй блок
+#    ещё не может стартовать без сертификата, которого пока нет.
+# 2. Поднять общий volume /var/www/certbot между nginx и certbot.
+# 3. Выпустить сертификат (пример с отдельным certbot-контейнером):
+#      docker run --rm \
+#        -v certbot_www:/var/www/certbot \
+#        -v certbot_conf:/etc/letsencrypt \
+#        certbot/certbot certonly --webroot -w /var/www/certbot \
+#        -d YOUR_DOMAIN -d www.YOUR_DOMAIN --email you@example.com --agree-tos
+# 4. Смонтировать certbot_conf в nginx как /etc/letsencrypt (read-only),
+#    добавить второй (HTTPS) server-блок, перезапустить nginx.
+# 5. Продление — та же команда с `renew` вместо `certonly ...`, по крону
+#    (сертификат живёт 90 дней); после продления — reload nginx, чтобы
+#    подхватить обновлённые файлы (`nginx -s reload`, без даунтайма).

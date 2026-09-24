@@ -32,12 +32,15 @@ def create_models():
 
 
 @pytest.fixture
-def db_session_maker(create_models):
+async def db_session_maker(create_models):
     """Expose the raw test session factory for tests that need direct DB access.
 
     Useful for seeding fields with no HTTP endpoint to set them yet.
     """
-    return test_session_maker
+    yield test_session_maker
+
+    async with test_engine.begin() as conn:
+        await conn.execute(text("TRUNCATE users CASCADE"))
 
 
 @pytest.fixture

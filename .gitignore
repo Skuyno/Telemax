@@ -4,6 +4,10 @@ dist/
 .env.*
 !.env.example
 
+# Настраивается локально на каждом сервере (домен, сертификат и т.д.) —
+# в репозитории только шаблон nginx.conf.example.
+src/services/nginx/nginx.conf
+
 coverage/
 .tmp/
 *.log

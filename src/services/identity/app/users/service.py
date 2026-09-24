@@ -1,23 +1,30 @@
 """Business logic for users."""
 
+import logging
 from collections.abc import AsyncIterator
 from typing import Sequence
 from uuid import UUID, uuid4
 
 from fastapi import HTTPException
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.roles import SUPERUSER, USER
 from app.users import repository as users_repository
 from app.users import storage as avatar_storage
 from app.users.models import User
 from app.users.schemas import (
     ChangePasswordRequest,
+    CreateAccountRequest,
     LoginRequest,
     RegisterRequest,
+    ResetPasswordRequest,
     UpdateProfileRequest,
 )
 from app.users.security import hash_password, verify_password
+
+logger = logging.getLogger(__name__)
 
 _ALLOWED_AVATAR_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
 
@@ -26,6 +33,9 @@ _DUMMY_HASH = hash_password("dummy-password-for-timing")
 
 async def register_user(db: AsyncSession, data: RegisterRequest) -> User:
     """Register a new user with a hashed password.
+
+    Always creates a plain "user" role — self-service registration can
+    never produce an admin or superuser account.
 
     Args:
         db: Async database session.
@@ -36,8 +46,122 @@ async def register_user(db: AsyncSession, data: RegisterRequest) -> User:
     """
     hashed_pwd = hash_password(data.password)
     return await users_repository.create_user(
-        db, username=data.username, password_hash=hashed_pwd
+        db, username=data.username, password_hash=hashed_pwd, role=USER
     )
+
+
+async def ensure_superuser_seeded(db: AsyncSession) -> None:
+    """Create the superuser account on first startup, if it doesn't exist yet.
+
+    Idempotent: does nothing once a superuser already exists. Runs once
+    at service startup (see app/main.py), not on every request.
+
+    Args:
+        db: Async database session.
+    """
+    if await users_repository.count_by_role(db, SUPERUSER) > 0:
+        return
+
+    try:
+        await users_repository.create_user(
+            db,
+            username=settings.superuser_username,
+            password_hash=hash_password(settings.superuser_password),
+            role=SUPERUSER,
+        )
+        logger.info(
+            "Seeded superuser account '%s'", settings.superuser_username
+        )
+    except IntegrityError:
+        # SUPERUSER_USERNAME collides with an existing non-superuser
+        # account — don't silently promote someone else's account, and
+        # don't crash the whole service over it either. Needs a human to
+        # pick a free username (or free up this one) and restart.
+        await db.rollback()
+        logger.error(
+            "Cannot seed superuser: username '%s' is already taken by a "
+            "non-superuser account. Set a different SUPERUSER_USERNAME.",
+            settings.superuser_username,
+        )
+
+
+async def create_account(db: AsyncSession, data: CreateAccountRequest) -> User:
+    """Create an admin or user account (internal — no permission check).
+
+    Called by the administration service, which has already verified the
+    requesting user's role is allowed to create this target role — this
+    layer only enforces what CreateAccountRequest.role's own pattern
+    already restricts: the target can never be "superuser" via this path,
+    regardless of who's asking. Unlike self-service registration, this
+    can produce an admin account.
+
+    Args:
+        db: Async database session.
+        data: Username, password, and the role to assign.
+
+    Returns:
+        User: The created account.
+
+    Raises:
+        HTTPException: 409 if the username is already taken.
+    """
+    try:
+        return await users_repository.create_user(
+            db,
+            username=data.username,
+            password_hash=hash_password(data.password),
+            role=data.role,
+        )
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail="Username already taken")
+
+
+async def delete_account(db: AsyncSession, caller_id: UUID, target_id: UUID) -> None:
+    """Delete an admin or user account (internal — no role-permission check).
+
+    Called by the administration service, which has already verified the
+    requesting user's role is allowed to delete this target's role. Two
+    invariants are still enforced here regardless, since they're
+    properties of the system, not a matter of "who's allowed": the
+    superuser account can never be deleted by anyone, and an account
+    can't delete itself through this action.
+
+    Args:
+        db: Async database session.
+        caller_id: Id of the account requesting the deletion.
+        target_id: Id of the account to delete.
+
+    Raises:
+        HTTPException: 400 if the caller targets their own account, 404
+            if the target doesn't exist, 403 if the target is the
+            superuser.
+    """
+    if target_id == caller_id:
+        raise HTTPException(status_code=400, detail="Cannot delete your own account")
+
+    target = await users_repository.get_user_by_id(db, target_id)
+    if target is None:
+        raise HTTPException(status_code=404, detail="Account not found")
+
+    if target.role == SUPERUSER:
+        raise HTTPException(status_code=403, detail="Cannot delete this account")
+
+    await users_repository.delete_user(db, target)
+
+
+async def list_accounts(db: AsyncSession, limit: int, offset: int) -> Sequence[User]:
+    """List accounts for an admin-management screen.
+
+    Args:
+        db: Async database session.
+        limit: Maximum number of rows to return.
+        offset: Number of rows to skip (for pagination).
+
+    Returns:
+        Sequence[User]: Accounts ordered newest first.
+    """
+    return await users_repository.list_users(db, limit, offset)
 
 
 async def authenticate_user(db: AsyncSession, data: LoginRequest) -> User | None:
@@ -107,6 +231,30 @@ async def change_password(
     if not verify_password(data.current_password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid current password")
 
+    await users_repository.update_user(
+        db,
+        user,
+        {
+            "password_hash": hash_password(data.new_password),
+            "token_version": user.token_version + 1,
+        },
+    )
+
+
+async def reset_password(
+    db: AsyncSession, user: User, data: ResetPasswordRequest
+) -> None:
+    """Reset a user's own password from the settings page, no current password needed.
+
+    Same "log out other sessions" effect as change_password (bumps
+    token_version) — deliberately simpler flow, not a weaker one: it
+    still requires the caller to already hold a valid access token.
+
+    Args:
+        db: Async database session.
+        user: The user resetting their password.
+        data: The new password.
+    """
     await users_repository.update_user(
         db,
         user,

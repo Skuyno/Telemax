@@ -125,3 +125,51 @@ jobs:
         env:
           JWT_SECRET: test-secret-for-aboba-for-aboba-for-aboba-for-aboba-for-aboba-for-aboba
         run: pytest -q
+  test-administration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        working-directory: src/services/administration
+        run: pip install -r requirements.txt pytest pytest-asyncio
+      - name: Run tests
+        working-directory: src/services/administration
+        run: pytest -q
+
+  deploy:
+    # Only after every check passes, and only for a dev -> main merge — not
+    # a direct push to main, not a push to dev, not a PR run. GitHub's
+    # default merge-commit message for that is "Merge pull request #NN from
+    # <owner>/dev", so a message ending in "/dev" is this repo's actual,
+    # observed signature for exactly that (see `git log --merges`) — any
+    # ordinary commit landing on main any other way won't happen to end
+    # with that.
+    needs:
+      - lint
+      - test-identity
+      - test-communication
+      - test-file-orchestrator
+      - test-api-gateway
+      - test-administration
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      github.event_name == 'push' &&
+      endsWith(github.event.head_commit.message, '/dev')
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Default behavior runs `git clean -ffdx` before checkout, which
+          # would delete every untracked file in the working tree — on this
+          # runner that's the server's own gitignored .env files for every
+          # service. clean: false keeps them; git still fast-forwards the
+          # tracked files normally.
+          clean: false
+      - name: Rebuild and restart containers
+        working-directory: deploy
+        run: docker compose up -d --build
+      - name: Drop dangling images from previous builds
+        run: docker image prune -f

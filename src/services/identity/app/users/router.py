@@ -18,6 +18,7 @@ from app.users.schemas import (
     LoginRequest,
     RegisterRequest,
     RegisterResponse,
+    ResetPasswordRequest,
     TokenRequest,
     TokenResponse,
     UpdateProfileRequest,
@@ -47,8 +48,12 @@ async def register(
         RegisterResponse: The created user's id.
 
     Raises:
-        HTTPException: 409 if the username is already taken.
+        HTTPException: 403 if self-service registration is disabled
+            (`ALLOW_REGISTRATION=false`), 409 if the username is taken.
     """
+    if not settings.allow_registration:
+        raise HTTPException(status_code=403, detail="Registration is disabled")
+
     try:
         user = await users_service.register_user(db, data)
     except IntegrityError:
@@ -201,6 +206,34 @@ async def change_my_password(
         raise HTTPException(status_code=404, detail="User not found")
 
     await users_service.change_password(db, user, data)
+
+
+@router.post("/password/reset", status_code=204, tags=["Users"])
+async def reset_my_password(
+    data: ResetPasswordRequest,
+    user_id: UUID = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_async_db),
+) -> None:
+    """Reset the current user's own password from the settings page.
+
+    Unlike POST /me/password, doesn't require the current password —
+    a simpler flow for a logged-in user who wants to set a new one.
+    Invalidates existing refresh tokens (bumps `token_version`), same as
+    the current-password-required flow.
+
+    Args:
+        data: The new password.
+        user_id: User id trusted from the X-User-Id header (set by API Gateway).
+        db: Async database session.
+
+    Raises:
+        HTTPException: 404 if the user no longer exists.
+    """
+    user = await users_service.get_user_profile(db, user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    await users_service.reset_password(db, user, data)
 
 
 @router.put("/me/avatar", tags=["Users"], response_model=UserResponse)

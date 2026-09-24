@@ -30,6 +30,9 @@ class Settings(BaseSettings):
     identity_url: str = "http://identity:8000"
     file_orchestrator_url: str = "http://file-orchestrator:8000"
     nats_port: int = 4222
+    # Off by default — logs raw SQL with bound parameter values (message
+    # bodies included). Opt in locally via .env when debugging queries.
+    sql_echo: bool = False
 
     model_config = SettingsConfigDict(
         env_file=_find_env_file(),

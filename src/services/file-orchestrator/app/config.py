@@ -39,6 +39,10 @@ class Settings(BaseSettings):
     # How often (in bytes received) to publish an upload progress event.
     upload_progress_interval_bytes: int = 1_048_576
 
+    # Off by default — logs raw SQL with bound parameter values. Opt in
+    # locally via .env when debugging queries.
+    sql_echo: bool = False
+
     model_config = SettingsConfigDict(
         env_file=_find_env_file(),
         env_file_encoding="utf-8",

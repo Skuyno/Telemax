@@ -24,6 +24,7 @@ export function useFiles() {
     chatId: string,
     file: File,
     onProgress: (fraction: number) => void,
+    _retriedAfterRefresh = false,
   ): Promise<FileResponse> {
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest()
@@ -35,7 +36,7 @@ export function useFiles() {
       xhr.upload.onprogress = (event) => {
         if (event.lengthComputable) onProgress(event.loaded / event.total)
       }
-      xhr.onload = () => {
+      xhr.onload = async () => {
         if (xhr.status >= 200 && xhr.status < 300) {
           const saved = JSON.parse(xhr.responseText) as FileResponse
           attachmentCache.set(
@@ -49,6 +50,16 @@ export function useFiles() {
             }),
           )
           resolve(saved)
+        } else if (xhr.status === 401 && !_retriedAfterRefresh) {
+          // XHR bypasses useApi's ofetch instance (needed for upload
+          // progress events), so it doesn't get the refresh-and-retry
+          // handling for free — redone here, once, for this one request.
+          const newToken = await refreshAccessToken()
+          if (newToken) {
+            uploadFile(chatId, file, onProgress, true).then(resolve, reject)
+          } else {
+            reject(new Error('Сессия истекла, войдите заново'))
+          }
         } else if (xhr.status === 413) {
           reject(new Error('Файл слишком большой'))
         } else {

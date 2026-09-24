@@ -3,24 +3,27 @@
 from typing import Any, Sequence
 from uuid import UUID
 
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.users.models import User
 
 
-async def create_user(db: AsyncSession, username: str, password_hash: str) -> User:
+async def create_user(
+    db: AsyncSession, username: str, password_hash: str, role: str = "user"
+) -> User:
     """Create a user row.
 
     Args:
         db: Async database session.
         username: Unique login name.
         password_hash: Argon2 hash of the password.
+        role: One of "superuser", "admin", "user".
 
     Returns:
         User: The persisted user.
     """
-    user = User(username=username, password_hash=password_hash)
+    user = User(username=username, password_hash=password_hash, role=role)
     db.add(user)
     await db.commit()
     return user
@@ -68,6 +71,50 @@ async def get_user_by_id(db: AsyncSession, user_id: UUID) -> User | None:
         User | None: The user if found, otherwise None.
     """
     return await db.get(User, user_id)
+
+
+async def delete_user(db: AsyncSession, user: User) -> None:
+    """Permanently delete a user row.
+
+    Args:
+        db: Async database session.
+        user: The user row to delete.
+    """
+    await db.delete(user)
+    await db.commit()
+
+
+async def count_by_role(db: AsyncSession, role: str) -> int:
+    """Count how many users currently have a given role.
+
+    Args:
+        db: Async database session.
+        role: Role to count.
+
+    Returns:
+        int: Number of users with that role.
+    """
+    result = await db.execute(
+        select(func.count()).select_from(User).where(User.role == role)
+    )
+    return result.scalar_one()
+
+
+async def list_users(db: AsyncSession, limit: int, offset: int) -> Sequence[User]:
+    """List users for account-management screens, newest first.
+
+    Args:
+        db: Async database session.
+        limit: Maximum number of rows to return.
+        offset: Number of rows to skip (for pagination).
+
+    Returns:
+        Sequence[User]: Users ordered by creation time, newest first.
+    """
+    result = await db.execute(
+        select(User).order_by(User.created_at.desc()).limit(limit).offset(offset)
+    )
+    return result.scalars().all()
 
 
 async def get_users_bulk(db: AsyncSession, user_ids: set[UUID]) -> Sequence[User]:
