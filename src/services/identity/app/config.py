@@ -45,7 +45,7 @@ class Settings(BaseSettings):
     # superuser exists yet, using these credentials — change them via env
     # before a real deploy, the defaults are for local dev only.
     superuser_username: str = "admin"
-    superuser_password: str = "admin"
+    superuser_password: str = "admin123"
 
     model_config = SettingsConfigDict(
         env_file=_find_env_file(),
