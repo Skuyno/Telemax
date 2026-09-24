@@ -36,6 +36,11 @@ class Settings(BaseSettings):
     # Off by default — logs raw SQL with bound parameter values (emails,
     # password hashes included). Opt in locally via .env when debugging.
     sql_echo: bool = False
+    # On by default (current behavior). Set false on a production deploy
+    # with invite-only/pre-provisioned accounts — mirrors the frontend's
+    # NUXT_PUBLIC_AUTH_NEW_USER, but enforced here too: hiding the button
+    # on the frontend alone wouldn't stop a direct POST /auth/register.
+    allow_registration: bool = True
 
     model_config = SettingsConfigDict(
         env_file=_find_env_file(),

@@ -1,5 +1,7 @@
 """Tests for the register and login endpoints."""
 
+from unittest.mock import patch
+
 import jwt
 from httpx import AsyncClient
 
@@ -36,6 +38,19 @@ async def test_register_duplicate_username(client: AsyncClient):
         },
     )
     assert resp.status_code == 409
+
+
+async def test_register_disabled_returns_403(client: AsyncClient):
+    """With ALLOW_REGISTRATION=false, POST /auth/register is refused."""
+    with patch.object(settings, "allow_registration", False):
+        resp = await client.post(
+            "/auth/register",
+            json={
+                "username": "aboba",
+                "password": "abobas123",
+            },
+        )
+    assert resp.status_code == 403
 
 
 async def test_login_success(client: AsyncClient):

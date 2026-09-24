@@ -47,8 +47,12 @@ async def register(
         RegisterResponse: The created user's id.
 
     Raises:
-        HTTPException: 409 if the username is already taken.
+        HTTPException: 403 if self-service registration is disabled
+            (`ALLOW_REGISTRATION=false`), 409 if the username is taken.
     """
+    if not settings.allow_registration:
+        raise HTTPException(status_code=403, detail="Registration is disabled")
+
     try:
         user = await users_service.register_user(db, data)
     except IntegrityError:
