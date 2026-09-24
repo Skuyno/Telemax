@@ -29,9 +29,6 @@ export default defineNuxtConfig({
       apiBase: process.env.NUXT_PUBLIC_API_BASE || 'http://localhost:8000',
       // С путём /ws: ws-gateway слушает только его, корень отвечает 404.
       wsBase: process.env.NUXT_PUBLIC_WS_BASE || 'ws://localhost:4333/ws',
-      // На проде можно закрыть самостоятельную регистрацию (только вход
-      // по уже выданным учёткам) — по умолчанию открыта, как сейчас.
-      authNewUser: process.env.NUXT_PUBLIC_AUTH_NEW_USER !== 'false',
     },
   },
 })
