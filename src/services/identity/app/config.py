@@ -41,6 +41,11 @@ class Settings(BaseSettings):
     # NUXT_PUBLIC_AUTH_NEW_USER, but enforced here too: hiding the button
     # on the frontend alone wouldn't stop a direct POST /auth/register.
     allow_registration: bool = True
+    # The one "superuser" account is auto-provisioned on startup if no
+    # superuser exists yet, using these credentials — change them via env
+    # before a real deploy, the defaults are for local dev only.
+    superuser_username: str = "admin"
+    superuser_password: str = "admin"
 
     model_config = SettingsConfigDict(
         env_file=_find_env_file(),

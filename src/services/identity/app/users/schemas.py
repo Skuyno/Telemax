@@ -56,6 +56,7 @@ class UserResponse(BaseModel):
     display_name: str | None
     avatar_url: str | None
     created_at: datetime
+    role: str
 
 
 class UpdateProfileRequest(BaseModel):
@@ -92,6 +93,19 @@ class ChangePasswordRequest(BaseModel):
 
     current_password: str = Field(max_length=256)
     new_password: str = Field(min_length=8, max_length=256)
+
+
+class CreateAccountRequest(BaseModel):
+    """Request to create an admin or user account (an admin-management action).
+
+    Distinct from RegisterRequest: this carries a target role and is only
+    reachable by an already-authenticated admin/superuser, whereas
+    RegisterRequest is the public self-service signup (always "user").
+    """
+
+    username: str = Field(min_length=3, max_length=32)
+    password: str = Field(min_length=8, max_length=256)
+    role: str = Field(pattern="^(admin|user)$")
 
 
 class UserSearchRequest(BaseModel):

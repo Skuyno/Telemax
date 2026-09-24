@@ -1,23 +1,29 @@
 """Business logic for users."""
 
+import logging
 from collections.abc import AsyncIterator
 from typing import Sequence
 from uuid import UUID, uuid4
 
 from fastapi import HTTPException
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.roles import MANAGEABLE_ROLES, SUPERUSER, USER
 from app.users import repository as users_repository
 from app.users import storage as avatar_storage
 from app.users.models import User
 from app.users.schemas import (
     ChangePasswordRequest,
+    CreateAccountRequest,
     LoginRequest,
     RegisterRequest,
     UpdateProfileRequest,
 )
 from app.users.security import hash_password, verify_password
+
+logger = logging.getLogger(__name__)
 
 _ALLOWED_AVATAR_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
 
@@ -26,6 +32,9 @@ _DUMMY_HASH = hash_password("dummy-password-for-timing")
 
 async def register_user(db: AsyncSession, data: RegisterRequest) -> User:
     """Register a new user with a hashed password.
+
+    Always creates a plain "user" role — self-service registration can
+    never produce an admin or superuser account.
 
     Args:
         db: Async database session.
@@ -36,8 +45,121 @@ async def register_user(db: AsyncSession, data: RegisterRequest) -> User:
     """
     hashed_pwd = hash_password(data.password)
     return await users_repository.create_user(
-        db, username=data.username, password_hash=hashed_pwd
+        db, username=data.username, password_hash=hashed_pwd, role=USER
     )
+
+
+async def ensure_superuser_seeded(db: AsyncSession) -> None:
+    """Create the superuser account on first startup, if it doesn't exist yet.
+
+    Idempotent: does nothing once a superuser already exists. Runs once
+    at service startup (see app/main.py), not on every request.
+
+    Args:
+        db: Async database session.
+    """
+    if await users_repository.count_by_role(db, SUPERUSER) > 0:
+        return
+
+    try:
+        await users_repository.create_user(
+            db,
+            username=settings.superuser_username,
+            password_hash=hash_password(settings.superuser_password),
+            role=SUPERUSER,
+        )
+        logger.info(
+            "Seeded superuser account '%s'", settings.superuser_username
+        )
+    except IntegrityError:
+        # SUPERUSER_USERNAME collides with an existing non-superuser
+        # account — don't silently promote someone else's account, and
+        # don't crash the whole service over it either. Needs a human to
+        # pick a free username (or free up this one) and restart.
+        await db.rollback()
+        logger.error(
+            "Cannot seed superuser: username '%s' is already taken by a "
+            "non-superuser account. Set a different SUPERUSER_USERNAME.",
+            settings.superuser_username,
+        )
+
+
+async def create_account(
+    db: AsyncSession, caller: User, data: CreateAccountRequest
+) -> User:
+    """Create an admin or user account, as an admin-management action.
+
+    Unlike self-service registration, this can create admin accounts (for
+    a superuser caller) and is itself gated by the caller's own role.
+
+    Args:
+        db: Async database session.
+        caller: The authenticated caller creating the account.
+        data: Username, password, and the role to assign.
+
+    Returns:
+        User: The created account.
+
+    Raises:
+        HTTPException: 403 if the caller's role isn't allowed to create
+            an account with the requested role, 409 if the username is
+            already taken.
+    """
+    if data.role not in MANAGEABLE_ROLES.get(caller.role, set()):
+        raise HTTPException(status_code=403, detail="Cannot create this role")
+
+    try:
+        return await users_repository.create_user(
+            db,
+            username=data.username,
+            password_hash=hash_password(data.password),
+            role=data.role,
+        )
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail="Username already taken")
+
+
+async def delete_account(db: AsyncSession, caller: User, target_id: UUID) -> None:
+    """Delete an admin or user account, as an admin-management action.
+
+    Args:
+        db: Async database session.
+        caller: The authenticated caller deleting the account.
+        target_id: Id of the account to delete.
+
+    Raises:
+        HTTPException: 404 if the target doesn't exist, 400 if the caller
+            targets their own account, 403 if the caller's role isn't
+            allowed to delete an account with the target's role (this
+            also covers the superuser, which is never manageable by
+            anyone).
+    """
+    if target_id == caller.id:
+        raise HTTPException(status_code=400, detail="Cannot delete your own account")
+
+    target = await users_repository.get_user_by_id(db, target_id)
+    if target is None:
+        raise HTTPException(status_code=404, detail="Account not found")
+
+    if target.role not in MANAGEABLE_ROLES.get(caller.role, set()):
+        raise HTTPException(status_code=403, detail="Cannot delete this account")
+
+    await users_repository.delete_user(db, target)
+
+
+async def list_accounts(db: AsyncSession, limit: int, offset: int) -> Sequence[User]:
+    """List accounts for an admin-management screen.
+
+    Args:
+        db: Async database session.
+        limit: Maximum number of rows to return.
+        offset: Number of rows to skip (for pagination).
+
+    Returns:
+        Sequence[User]: Accounts ordered newest first.
+    """
+    return await users_repository.list_users(db, limit, offset)
 
 
 async def authenticate_user(db: AsyncSession, data: LoginRequest) -> User | None:

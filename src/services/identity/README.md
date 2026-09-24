@@ -7,9 +7,11 @@
 ```text
 app/
   users/       модели, схемы, бизнес-логика и HTTP-маршруты
+  admin/       маршруты управления аккаунтами (создание/удаление админов и юзеров)
   settings/    глобальные настройки пользователя, независимо от users/
   internal/    маршруты для других сервисов
   health/      проверка PostgreSQL
+  roles.py     константы ролей и правила «кто кем может управлять»
   config.py    конфигурация из окружения
   database.py  SQLAlchemy engine и фабрика сессий
 migrations/    миграции Alembic
@@ -32,10 +34,21 @@ tests/         тесты аутентификации, токенов и пои
 | `PATCH /me/settings` | Изменить настройки (например, `notifications_enabled`, `accept_calls`) | через API Gateway |
 | `GET /internal/users/{id}` | Проверка существования пользователя | внутренний |
 | `GET /health/db` | Проверка подключения к БД | внутренний |
+| `POST /admin/accounts` | Создать admin- или user-аккаунт | admin/superuser |
+| `DELETE /admin/accounts/{id}` | Удалить аккаунт | admin/superuser |
+| `GET /admin/accounts` | Список аккаунтов (пагинация `limit`/`offset`) | admin/superuser |
 
 Точные схемы запросов и ответов доступны в Swagger UI по `/docs` и в OpenAPI JSON по `/openapi.json` при запущенном сервисе.
 
-`UserResponse` уже включает `avatar_url`, но задать его пока нечем — это задел под будущую загрузку файлов (S3-совместимое хранилище), поле всегда `null`, пока такой эндпоинт не появится.
+## Роли
+
+Три роли, хранятся в `users.role`: `superuser`, `admin`, `user`.
+
+- **superuser** — единственный аккаунт, создаётся автоматически при первом старте сервиса (см. `ensure_superuser_seeded` в `app/main.py`) с логином/паролем из `SUPERUSER_USERNAME`/`SUPERUSER_PASSWORD` (по умолчанию `admin`/`admin` — обязательно сменить перед реальным деплоем). Может создавать и удалять `admin`- и `user`-аккаунты. Его самого не может удалить никто, в том числе он сам — эндпоинт `DELETE /admin/accounts/{id}` всегда отвечает `403` на цель с ролью `superuser`.
+- **admin** — может создавать и удалять только `user`-аккаунты (`403` при попытке создать/удалить admin или superuser).
+- **user** — обычный аккаунт, создаётся через `POST /auth/register` (самостоятельная регистрация никогда не создаёт admin/superuser) или через `POST /admin/accounts` от имени admin/superuser. Не имеет доступа ни к одному `/admin/...` маршруту (`403`).
+
+Правила «кто кем может управлять» — в `app/roles.py` (`MANAGEABLE_ROLES`). Удалить собственный аккаунт через `/admin/accounts/{id}` нельзя (`400`) — это не про самих себя, а про управление чужими.
 
 ## Токены
 
@@ -59,6 +72,8 @@ tests/         тесты аутентификации, токенов и пои
 | `REFRESH_TOKEN_EXPIRE_DAYS` | нет | `30` | Срок жизни refresh JWT в днях |
 | `SQL_ECHO` | нет | `false` | Логировать SQL-запросы SQLAlchemy (со значениями параметров — email, хэши паролей; включать только локально для отладки) |
 | `ALLOW_REGISTRATION` | нет | `true` | Разрешить `POST /auth/register`. На проде с закрытой регистрацией — `false` (сервер отвечает `403`, независимо от того, показывает ли фронтенд кнопку) |
+| `SUPERUSER_USERNAME` | нет | `admin` | Логин автосоздаваемого superuser-аккаунта — сменить перед реальным деплоем |
+| `SUPERUSER_PASSWORD` | нет | `admin` | Пароль автосоздаваемого superuser-аккаунта — сменить перед реальным деплоем |
 
 Пример находится в `.env.example`.
 
