@@ -10,7 +10,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.chats import repository as chats_repository
 from app.chats.models import Chat, ChatMember, Message
-from app.chats.schemas import CreateDirectChatRequest, SendMessageRequest
+from app.chats.schemas import (
+    CreateDirectChatRequest,
+    CreateGroupChatRequest,
+    SendMessageRequest,
+)
 from app.config import settings
 from app.events import nats_client
 
@@ -53,9 +57,7 @@ async def _get_recipient_ids(
     return [str(m.user_id) for m in members if m.user_id != exclude_user_id]
 
 
-async def _validate_attachments(
-    chat_id: UUID, file_ids: Sequence[UUID]
-) -> None:
+async def _validate_attachments(chat_id: UUID, file_ids: Sequence[UUID]) -> None:
     """Verify a set of file ids are ready and belong to this chat.
 
     Delegates to file-orchestrator, the source of truth for files — this
@@ -511,3 +513,51 @@ async def get_unread_counts(
         dict[UUID, int]: Unread count per chat id; chats with none are absent.
     """
     return await chats_repository.count_unread_bulk(db, user_id, chat_ids)
+
+
+async def create_group_chat(
+    db: AsyncSession,
+    creator_id: UUID,
+    data: CreateGroupChatRequest,
+) -> Chat:
+    """Validate participants and create a group chat.
+
+    Args:
+        db: Async database session.
+        creator_id: User creating the group.
+        data: Group title and invited user ids.
+
+    Returns:
+        Chat: The newly created group chat.
+
+    Raises:
+        HTTPException: 400 if the group title is blank.
+        HTTPException: 404 if one or more requested users do not exist.
+    """
+    title = data.title.strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="group title must not be blank")
+
+    member_ids = sorted(set(data.member_ids) - {creator_id}, key=str)
+    if member_ids:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"{settings.identity_url}/users",
+                params=[("ids", str(member_id)) for member_id in member_ids],
+            )
+
+        response.raise_for_status()
+
+        existing_ids = {UUID(user["id"]) for user in response.json()}
+        if existing_ids != set(member_ids):
+            raise HTTPException(
+                status_code=404,
+                detail="one or more users not found",
+            )
+
+    return await chats_repository.create_group_chat(
+        db,
+        creator_id=creator_id,
+        title=title,
+        member_ids=member_ids,
+    )

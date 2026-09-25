@@ -12,6 +12,8 @@ from app.chats.schemas import (
     ChatResponse,
     CreateDirectChatRequest,
     CreateDirectChatResponse,
+    CreateGroupChatRequest,
+    CreateGroupChatResponse,
     EditMessageRequest,
     MarkChatReadRequest,
     MessageResponse,
@@ -272,3 +274,23 @@ async def mark_chat_read(
         db: Async database session.
     """
     await chats_service.mark_chat_read(db, chat_id, user_id, data.last_read_message_id)
+
+
+@router.post("/group", status_code=201, tags=["Chats"])
+async def create_group_chat(
+    data: CreateGroupChatRequest,
+    user_id: UUID = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_async_db),
+) -> CreateGroupChatResponse:
+    """Create a new group chat.
+
+    Args:
+        data: Group title and initial member ids.
+        user_id: User id trusted from the X-User-Id header.
+        db: Async database session.
+
+    Returns:
+        CreateGroupChatResponse: Id of the newly created group chat.
+    """
+    chat = await chats_service.create_group_chat(db, user_id, data)
+    return CreateGroupChatResponse.model_validate(chat)

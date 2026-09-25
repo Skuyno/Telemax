@@ -83,3 +83,18 @@ class MessageResponse(BaseModel):
     is_deleted: bool
     created_at: datetime
     attachment_file_ids: list[UUID] = Field(default_factory=list)
+
+
+class CreateGroupChatRequest(BaseModel):
+    """Request to create a group chat."""
+
+    title: str = Field(min_length=1, max_length=128)
+    member_ids: list[UUID] = Field(default_factory=list)
+
+
+class CreateGroupChatResponse(BaseModel):
+    """Response returned after creating a group chat."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID

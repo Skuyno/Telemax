@@ -13,6 +13,7 @@ from app.chats.models import (
     ChatMember,
     ChatReadState,
     DirectChat,
+    GroupChat,
     Message,
     MessageAttachment,
 )
@@ -496,3 +497,56 @@ async def list_chat_peer_ids(
     )
 
     return result.scalars().all()
+
+
+async def create_group_chat(
+    db: AsyncSession,
+    creator_id: UUID,
+    title: str,
+    member_ids: Sequence[UUID],
+) -> Chat:
+    """Create a group chat and its membership rows in one transaction.
+
+    Args:
+        db: Async database session.
+        creator_id: User creating the group.
+        title: Group title.
+        member_ids: Users invited to the group, excluding the creator.
+
+    Returns:
+        Chat: The newly created group chat.
+    """
+    chat = Chat(type="group", created_by=creator_id)
+    db.add(chat)
+    await db.flush()
+
+    members = [
+        ChatMember(
+            chat_id=chat.id,
+            user_id=creator_id,
+            role="owner",
+        ),
+        *[
+            ChatMember(
+                chat_id=chat.id,
+                user_id=member_id,
+                role="member",
+            )
+            for member_id in member_ids
+        ],
+    ]
+
+    db.add_all(
+        [
+            GroupChat(chat_id=chat.id, title=title),
+            *members,
+        ]
+    )
+
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise
+
+    return chat
