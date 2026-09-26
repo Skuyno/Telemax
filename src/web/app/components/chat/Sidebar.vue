@@ -65,7 +65,36 @@ watch(
   () => searchInput.value?.focus(),
 )
 
-onBeforeUnmount(() => clearTimeout(searchTimer))
+const menuOpen = ref(false)
+const menuRoot = ref<HTMLElement | null>(null)
+
+const canAdminister = computed(
+  () => auth.user?.role === 'admin' || auth.user?.role === 'superuser',
+)
+
+function onDocumentPointerDown(event: PointerEvent) {
+  if (!menuRoot.value?.contains(event.target as Node)) menuOpen.value = false
+}
+
+function onDocumentKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape') menuOpen.value = false
+}
+
+watch(menuOpen, (open) => {
+  if (open) {
+    window.addEventListener('pointerdown', onDocumentPointerDown)
+    window.addEventListener('keydown', onDocumentKeydown)
+  } else {
+    window.removeEventListener('pointerdown', onDocumentPointerDown)
+    window.removeEventListener('keydown', onDocumentKeydown)
+  }
+})
+
+onBeforeUnmount(() => {
+  clearTimeout(searchTimer)
+  window.removeEventListener('pointerdown', onDocumentPointerDown)
+  window.removeEventListener('keydown', onDocumentKeydown)
+})
 </script>
 
 <template>
@@ -75,7 +104,7 @@ onBeforeUnmount(() => clearTimeout(searchTimer))
       <div class="sidebar__actions">
         <button
           type="button"
-          class="sidebar__icon-btn"
+          class="sidebar__icon-btn is-saved"
           aria-label="Избранное"
           title="Избранное"
           @click="onOpenSaved"
@@ -84,37 +113,50 @@ onBeforeUnmount(() => clearTimeout(searchTimer))
             <path d="M6 3h12v18l-6-4.5L6 21z" />
           </svg>
         </button>
-        <button
-          type="button"
-          class="sidebar__icon-btn"
-          aria-label="Новый чат"
-          @click="chatStore.requestSearchFocus()"
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-            <path d="M4 20h4L19 9l-4-4L4 16v4z" />
-            <path d="M14 5l4 4" />
-          </svg>
-        </button>
-        <NuxtLink
-          v-if="auth.user?.role === 'admin' || auth.user?.role === 'superuser'"
-          to="/administration"
-          class="sidebar__icon-btn"
-          aria-label="Администрирование"
-          title="Администрирование"
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-            <path d="M12 2 4 6v6c0 5 3.4 8.6 8 10 4.6-1.4 8-5 8-10V6z" />
-            <path d="M9 12l2 2 4-4" />
-          </svg>
-        </NuxtLink>
-        <NuxtLink to="/settings" class="sidebar__icon-btn" aria-label="Настройки">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-            <circle cx="12" cy="12" r="3" />
-            <path
-              d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"
-            />
-          </svg>
-        </NuxtLink>
+        <div ref="menuRoot" class="sidebar__menu">
+          <button
+            type="button"
+            class="sidebar__icon-btn"
+            :class="{ 'is-active': menuOpen }"
+            aria-label="Ещё"
+            title="Ещё"
+            :aria-expanded="menuOpen"
+            @click="menuOpen = !menuOpen"
+          >
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <circle cx="5" cy="12" r="2" />
+              <circle cx="12" cy="12" r="2" />
+              <circle cx="19" cy="12" r="2" />
+            </svg>
+          </button>
+
+          <Transition name="menu">
+            <div v-if="menuOpen" class="sidebar__dropdown">
+              <NuxtLink
+                v-if="canAdminister"
+                to="/administration"
+                class="sidebar__menu-item"
+                @click="menuOpen = false"
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                  <path d="M12 2 4 6v6c0 5 3.4 8.6 8 10 4.6-1.4 8-5 8-10V6z" />
+                  <path d="M9 12l2 2 4-4" />
+                </svg>
+                Администрирование
+              </NuxtLink>
+
+              <NuxtLink to="/settings" class="sidebar__menu-item" @click="menuOpen = false">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                  <circle cx="12" cy="12" r="3" />
+                  <path
+                    d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"
+                  />
+                </svg>
+                Настройки
+              </NuxtLink>
+            </div>
+          </Transition>
+        </div>
       </div>
     </header>
 
@@ -245,14 +287,82 @@ onBeforeUnmount(() => clearTimeout(searchTimer))
     border-color 0.15s ease;
 }
 
-.sidebar__icon-btn:hover {
+.sidebar__icon-btn:hover,
+.sidebar__icon-btn.is-active {
   color: var(--color-accent);
   border-color: var(--chat-accent-soft);
+}
+
+.sidebar__icon-btn.is-saved {
+  color: var(--color-accent);
+  border-color: var(--chat-accent-soft);
+}
+
+.sidebar__icon-btn.is-saved:hover {
+  background: var(--color-surface);
 }
 
 .sidebar__icon-btn svg {
   width: 18px;
   height: 18px;
+}
+
+.sidebar__menu {
+  position: relative;
+}
+
+.sidebar__dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 232px;
+  padding: 6px;
+  background: var(--color-lift);
+  border: 1px solid var(--color-line);
+  border-radius: 14px;
+  box-shadow: var(--shadow-hard);
+}
+
+.sidebar__menu-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 12px;
+  border-radius: 10px;
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.sidebar__menu-item:hover {
+  background: var(--color-surface);
+  color: var(--color-accent);
+}
+
+.sidebar__menu-item svg {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  color: var(--color-accent);
+}
+
+.menu-enter-active,
+.menu-leave-active {
+  transition:
+    opacity 0.14s ease,
+    transform 0.14s ease;
+}
+
+.menu-enter-from,
+.menu-leave-to {
+  opacity: 0;
+  transform: translateY(-6px);
 }
 
 .sidebar__panel {
@@ -264,6 +374,8 @@ onBeforeUnmount(() => clearTimeout(searchTimer))
   display: flex;
   align-items: center;
   gap: 10px;
+  flex: 1;
+  min-width: 0;
   height: 42px;
   padding: 0 14px;
   background: var(--color-ground);
