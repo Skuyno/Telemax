@@ -101,3 +101,9 @@ class CreateGroupChatResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
+
+
+class AddGroupMembersRequest(BaseModel):
+    """Request to add users to a group chat."""
+
+    user_ids: list[UUID] = Field(min_length=1)

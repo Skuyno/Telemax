@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.chats import service as chats_service
 from app.chats.models import Message
 from app.chats.schemas import (
+    AddGroupMembersRequest,
     ChatMembersResponse,
     ChatResponse,
     CreateDirectChatRequest,
@@ -111,6 +112,24 @@ async def list_chat_members(
     """
     members = await chats_service.list_chat_members(db, chat_id, user_id)
     return [ChatMembersResponse.model_validate(member) for member in members]
+
+
+@router.post("/{chat_id}/members", status_code=204, tags=["Chats"])
+async def add_group_members(
+    chat_id: UUID,
+    data: AddGroupMembersRequest,
+    user_id: UUID = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_async_db),
+) -> None:
+    """Add users to a group chat.
+
+    Args:
+        chat_id: Id of the group chat.
+        data: Users to add.
+        user_id: Current user, who must be the group owner.
+        db: Async database session.
+    """
+    await chats_service.add_group_members(db, chat_id, user_id, data)
 
 
 @router.post("/{chat_id}/messages", status_code=201, tags=["Messages"])

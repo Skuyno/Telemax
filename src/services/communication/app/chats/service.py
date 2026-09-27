@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.chats import repository as chats_repository
 from app.chats.models import Chat, ChatMember, Message
 from app.chats.schemas import (
+    AddGroupMembersRequest,
     CreateDirectChatRequest,
     CreateGroupChatRequest,
     SendMessageRequest,
@@ -84,6 +85,27 @@ async def _validate_attachments(chat_id: UUID, file_ids: Sequence[UUID]) -> None
 
     if not set(file_ids).issubset(valid_ids):
         raise HTTPException(status_code=400, detail="invalid attachment file id")
+
+
+async def _require_existing_users(user_ids: Sequence[UUID]) -> None:
+    """Raise if any of the supplied user ids do not exist."""
+    if not user_ids:
+        return
+
+    async with httpx.AsyncClient() as client:
+        response = await client.get(
+            f"{settings.identity_url}/users",
+            params=[("ids", str(user_id)) for user_id in user_ids],
+        )
+
+    response.raise_for_status()
+
+    existing_ids = {UUID(user["id"]) for user in response.json()}
+    if existing_ids != set(user_ids):
+        raise HTTPException(
+            status_code=404,
+            detail="one or more users not found",
+        )
 
 
 async def get_or_create_direct_chat(
@@ -542,21 +564,7 @@ async def create_group_chat(
         raise HTTPException(status_code=400, detail="group title must not be blank")
 
     member_ids = sorted(set(data.member_ids) - {creator_id}, key=str)
-    if member_ids:
-        async with httpx.AsyncClient() as client:
-            response = await client.get(
-                f"{settings.identity_url}/users",
-                params=[("ids", str(member_id)) for member_id in member_ids],
-            )
-
-        response.raise_for_status()
-
-        existing_ids = {UUID(user["id"]) for user in response.json()}
-        if existing_ids != set(member_ids):
-            raise HTTPException(
-                status_code=404,
-                detail="one or more users not found",
-            )
+    await _require_existing_users(member_ids)
 
     return await chats_repository.create_group_chat(
         db,
@@ -564,3 +572,44 @@ async def create_group_chat(
         title=title,
         member_ids=member_ids,
     )
+
+
+async def add_group_members(
+    db: AsyncSession,
+    chat_id: UUID,
+    actor_id: UUID,
+    data: AddGroupMembersRequest,
+) -> None:
+    """Add users to a group chat on behalf of its owner.
+
+    Args:
+        db: Async database session.
+        chat_id: Id of the group chat.
+        actor_id: Id of the user performing the operation.
+        data: User ids to add.
+
+    Raises:
+        HTTPException: 403 if the actor is not the group owner.
+        HTTPException: 404 if one or more requested users do not exist.
+        HTTPException: 409 if the chat is not a group chat.
+    """
+    context = await chats_repository.get_chat_and_member(db, chat_id, actor_id)
+    if context is None:
+        raise HTTPException(status_code=403, detail="not a user chat")
+
+    chat, actor_membership = context
+    if chat.type != "group":
+        raise HTTPException(
+            status_code=409,
+            detail="members can only be added to group chats",
+        )
+
+    if actor_membership.role != "owner":
+        raise HTTPException(
+            status_code=403,
+            detail="only the group owner can add members",
+        )
+
+    user_ids = sorted(set(data.user_ids) - {actor_id}, key=str)
+    await _require_existing_users(user_ids)
+    await chats_repository.add_chat_members(db, chat_id, user_ids)

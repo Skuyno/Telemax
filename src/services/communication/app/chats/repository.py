@@ -5,6 +5,7 @@ from typing import Sequence
 from uuid import UUID
 
 from sqlalchemy import exists, func, or_, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -159,6 +160,39 @@ async def is_user_in_chat(db: AsyncSession, chat_id: UUID, user_id: UUID) -> boo
         )
     )
     return result.scalar()
+
+
+async def get_chat_and_member(
+    db: AsyncSession,
+    chat_id: UUID,
+    user_id: UUID,
+) -> tuple[Chat, ChatMember] | None:
+    """Return a chat together with the requesting user's membership.
+
+    Args:
+        db: Async database session.
+        chat_id: Id of the chat.
+        user_id: Id of the requesting user.
+
+    Returns:
+        tuple[Chat, ChatMember] | None: Chat and membership when the user
+            belongs to the chat, otherwise None.
+    """
+    result = await db.execute(
+        select(Chat, ChatMember)
+        .join(ChatMember, ChatMember.chat_id == Chat.id)
+        .where(
+            Chat.id == chat_id,
+            ChatMember.user_id == user_id,
+        )
+    )
+
+    row = result.one_or_none()
+    if row is None:
+        return None
+
+    chat, member = row
+    return chat, member
 
 
 async def create_message(
@@ -552,3 +586,37 @@ async def create_group_chat(
         raise
 
     return chat
+
+
+async def add_chat_members(
+    db: AsyncSession,
+    chat_id: UUID,
+    user_ids: Sequence[UUID],
+) -> None:
+    """Add users to a chat, ignoring existing memberships.
+
+    Args:
+        db: Async database session.
+        chat_id: Id of the chat.
+        user_ids: Ids of users to add with the member role.
+    """
+    if not user_ids:
+        return
+
+    statement = (
+        pg_insert(ChatMember)
+        .values(
+            [
+                {
+                    "chat_id": chat_id,
+                    "user_id": user_id,
+                    "role": "member",
+                }
+                for user_id in user_ids
+            ]
+        )
+        .on_conflict_do_nothing(index_elements=["chat_id", "user_id"])
+    )
+
+    await db.execute(statement)
+    await db.commit()
