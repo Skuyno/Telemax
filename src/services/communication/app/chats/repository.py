@@ -82,23 +82,25 @@ async def create_direct_chat(
 async def list_user_chats(
     db: AsyncSession,
     user_id: UUID,
-) -> Sequence[Chat]:
-    """Look up all chats the given user is a member of.
+) -> Sequence[tuple[Chat, str | None]]:
+    """Look up a user's chats together with optional group titles.
 
     Args:
         db: Async database session.
         user_id: Id of the user to look up chats for.
 
     Returns:
-        Sequence[Chat]: All chats the user is a member of.
+        Sequence[tuple[Chat, str | None]]: Chats paired with their group title;
+            direct chats have no title.
     """
     result = await db.execute(
-        select(Chat)
+        select(Chat, GroupChat.title)
+        .outerjoin(GroupChat, GroupChat.chat_id == Chat.id)
         .join(ChatMember, Chat.id == ChatMember.chat_id)
         .where(ChatMember.user_id == user_id)
     )
 
-    return result.scalars().all()
+    return [(chat, title) for chat, title in result.all()]
 
 
 async def get_last_messages(

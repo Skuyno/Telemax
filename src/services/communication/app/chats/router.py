@@ -75,18 +75,20 @@ async def list_user_chats(
         list[ChatResponse]: The user's chats, each with a preview of the
         most recent message (null if none yet).
     """
-    chats = await chats_service.list_user_chats(db, user_id)
-    chat_ids = [chat.id for chat in chats]
+    chats_with_titles = await chats_service.list_user_chats(db, user_id)
+    chat_ids = [chat.id for chat, _ in chats_with_titles]
     last_messages = await chats_service.get_last_messages(db, chat_ids)
     unread_counts = await chats_service.get_unread_counts(db, user_id, chat_ids)
 
     return [
         ChatResponse(
             id=chat.id,
+            type=chat.type,
+            title=title,
             last_message=last_messages.get(chat.id),
             unread_count=unread_counts.get(chat.id, 0),
         )
-        for chat in chats
+        for chat, title in chats_with_titles
     ]
 
 

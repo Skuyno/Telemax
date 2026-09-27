@@ -123,15 +123,18 @@ async def get_or_create_direct_chat(
         return chat, False
 
 
-async def list_user_chats(db: AsyncSession, user_id: UUID) -> Sequence[Chat]:
-    """List all chats the given user is a member of.
+async def list_user_chats(
+    db: AsyncSession, user_id: UUID
+) -> Sequence[tuple[Chat, str | None]]:
+    """List a user's chats together with optional group titles.
 
     Args:
         db: Async database session.
         user_id: Id of the user to look up chats for.
 
     Returns:
-        Sequence[Chat]: All chat the user is a member of.
+        Sequence[tuple[Chat, str | None]]: Chats paired with their group title;
+            direct chats have no title.
     """
     return await chats_repository.list_user_chats(db, user_id)
 

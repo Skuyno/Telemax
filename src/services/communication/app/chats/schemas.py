@@ -1,6 +1,7 @@
 """Pydantic schemas for chats."""
 
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -31,11 +32,13 @@ class MessagePreview(BaseModel):
 
 
 class ChatResponse(BaseModel):
-    """Chat list item: id, unread count, and a preview of the last message."""
+    """Chat list item with its type, title, unread count, and last message."""
 
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
+    type: Literal["direct", "group"]
+    title: str | None = None
     last_message: MessagePreview | None
     unread_count: int = 0
 
