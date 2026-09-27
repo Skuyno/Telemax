@@ -107,3 +107,9 @@ class AddGroupMembersRequest(BaseModel):
     """Request to add users to a group chat."""
 
     user_ids: list[UUID] = Field(min_length=1)
+
+
+class UpdateGroupChatRequest(BaseModel):
+    """Request to update a group chat."""
+
+    title: str = Field(min_length=1, max_length=128)

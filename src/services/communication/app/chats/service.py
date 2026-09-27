@@ -15,6 +15,7 @@ from app.chats.schemas import (
     CreateDirectChatRequest,
     CreateGroupChatRequest,
     SendMessageRequest,
+    UpdateGroupChatRequest,
 )
 from app.config import settings
 from app.events import nats_client
@@ -685,3 +686,52 @@ async def remove_group_member(
         )
 
     await chats_repository.remove_chat_member(db, chat_id, member_id)
+
+
+async def update_group_chat(
+    db: AsyncSession,
+    chat_id: UUID,
+    actor_id: UUID,
+    data: UpdateGroupChatRequest,
+) -> None:
+    """Update a group chat on behalf of its owner.
+
+    Args:
+        db: Async database session.
+        chat_id: Id of the group chat.
+        actor_id: Id of the user performing the operation.
+        data: Group fields to update.
+
+    Raises:
+        HTTPException: 400 if the title is blank.
+        HTTPException: 403 if the actor is not the group owner.
+        HTTPException: 404 if the group subtype row does not exist.
+        HTTPException: 409 if the chat is not a group chat.
+    """
+    context = await chats_repository.get_chat_and_member(db, chat_id, actor_id)
+    if context is None:
+        raise HTTPException(status_code=403, detail="not a user chat")
+
+    chat, actor_membership = context
+    if chat.type != "group":
+        raise HTTPException(
+            status_code=409,
+            detail="only group chats can be updated",
+        )
+
+    if actor_membership.role != "owner":
+        raise HTTPException(
+            status_code=403,
+            detail="only the group owner can update the group",
+        )
+
+    title = data.title.strip()
+    if not title:
+        raise HTTPException(
+            status_code=400,
+            detail="group title must not be blank",
+        )
+
+    updated = await chats_repository.update_group_title(db, chat_id, title)
+    if not updated:
+        raise HTTPException(status_code=404, detail="group chat not found")

@@ -19,6 +19,7 @@ from app.chats.schemas import (
     MarkChatReadRequest,
     MessageResponse,
     SendMessageRequest,
+    UpdateGroupChatRequest,
 )
 from app.dependencies import get_async_db, get_current_user_id
 
@@ -148,6 +149,24 @@ async def remove_group_member(
         db: Async database session.
     """
     await chats_service.remove_group_member(db, chat_id, user_id, member_id)
+
+
+@router.patch("/{chat_id}", status_code=204, tags=["Chats"])
+async def update_group_chat(
+    chat_id: UUID,
+    data: UpdateGroupChatRequest,
+    user_id: UUID = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_async_db),
+) -> None:
+    """Update a group chat.
+
+    Args:
+        chat_id: Id of the group chat.
+        data: Group fields to update.
+        user_id: Current user, who must be the group owner.
+        db: Async database session.
+    """
+    await chats_service.update_group_chat(db, chat_id, user_id, data)
 
 
 @router.post("/{chat_id}/messages", status_code=201, tags=["Messages"])

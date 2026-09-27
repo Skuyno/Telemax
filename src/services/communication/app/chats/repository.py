@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import Sequence
 from uuid import UUID
 
-from sqlalchemy import delete, exists, func, or_, select
+from sqlalchemy import delete, exists, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -641,3 +641,29 @@ async def remove_chat_member(
         )
     )
     await db.commit()
+
+
+async def update_group_title(
+    db: AsyncSession,
+    chat_id: UUID,
+    title: str,
+) -> bool:
+    """Update a group chat title.
+
+    Args:
+        db: Async database session.
+        chat_id: Id of the group chat.
+        title: New group title.
+
+    Returns:
+        bool: True if the group row was updated.
+    """
+    result = await db.execute(
+        update(GroupChat)
+        .where(GroupChat.chat_id == chat_id)
+        .values(title=title)
+        .returning(GroupChat.chat_id)
+    )
+    await db.commit()
+
+    return result.scalar_one_or_none() is not None
