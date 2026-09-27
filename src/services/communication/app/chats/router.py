@@ -132,6 +132,24 @@ async def add_group_members(
     await chats_service.add_group_members(db, chat_id, user_id, data)
 
 
+@router.delete("/{chat_id}/members/{member_id}", status_code=204, tags=["Chats"])
+async def remove_group_member(
+    chat_id: UUID,
+    member_id: UUID,
+    user_id: UUID = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_async_db),
+) -> None:
+    """Remove a member from a group chat or leave the group.
+
+    Args:
+        chat_id: Id of the group chat.
+        member_id: Id of the member to remove.
+        user_id: Current user performing the operation.
+        db: Async database session.
+    """
+    await chats_service.remove_group_member(db, chat_id, user_id, member_id)
+
+
 @router.post("/{chat_id}/messages", status_code=201, tags=["Messages"])
 async def send_message(
     chat_id: UUID,

@@ -613,3 +613,75 @@ async def add_group_members(
     user_ids = sorted(set(data.user_ids) - {actor_id}, key=str)
     await _require_existing_users(user_ids)
     await chats_repository.add_chat_members(db, chat_id, user_ids)
+
+
+async def remove_group_member(
+    db: AsyncSession,
+    chat_id: UUID,
+    actor_id: UUID,
+    member_id: UUID,
+) -> None:
+    """Remove a member from a group or let a member leave it.
+
+    Args:
+        db: Async database session.
+        chat_id: Id of the group chat.
+        actor_id: Id of the user performing the operation.
+        member_id: Id of the member to remove.
+
+    Raises:
+        HTTPException: 403 if the actor cannot remove the requested member.
+        HTTPException: 409 if the chat is not a group or the owner would
+            be removed.
+    """
+    actor_context = await chats_repository.get_chat_and_member(
+        db,
+        chat_id,
+        actor_id,
+    )
+    if actor_context is None:
+        if actor_id == member_id:
+            return
+
+        raise HTTPException(status_code=403, detail="not a user chat")
+
+    chat, actor_membership = actor_context
+
+    if chat.type != "group":
+        raise HTTPException(
+            status_code=409,
+            detail="members can only be removed from group chats",
+        )
+
+    if actor_id == member_id:
+        if actor_membership.role == "owner":
+            raise HTTPException(
+                status_code=409,
+                detail="group owner cannot leave the group",
+            )
+
+        await chats_repository.remove_chat_member(db, chat_id, member_id)
+        return
+
+    if actor_membership.role != "owner":
+        raise HTTPException(
+            status_code=403,
+            detail="only the group owner can remove other members",
+        )
+
+    target_context = await chats_repository.get_chat_and_member(
+        db,
+        chat_id,
+        member_id,
+    )
+    if target_context is None:
+        return
+
+    _, target_membership = target_context
+    if target_membership.role == "owner":
+        raise HTTPException(
+            status_code=409,
+            detail="group owner cannot be removed",
+        )
+
+    await chats_repository.remove_chat_member(db, chat_id, member_id)

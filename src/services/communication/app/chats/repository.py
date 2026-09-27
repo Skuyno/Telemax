@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import Sequence
 from uuid import UUID
 
-from sqlalchemy import exists, func, or_, select
+from sqlalchemy import delete, exists, func, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -619,4 +619,25 @@ async def add_chat_members(
     )
 
     await db.execute(statement)
+    await db.commit()
+
+
+async def remove_chat_member(
+    db: AsyncSession,
+    chat_id: UUID,
+    user_id: UUID,
+) -> None:
+    """Remove a user from a chat.
+
+    Args:
+        db: Async database session.
+        chat_id: Id of the chat.
+        user_id: Id of the user to remove.
+    """
+    await db.execute(
+        delete(ChatMember).where(
+            ChatMember.chat_id == chat_id,
+            ChatMember.user_id == user_id,
+        )
+    )
     await db.commit()
