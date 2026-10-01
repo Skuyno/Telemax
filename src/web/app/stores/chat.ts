@@ -153,12 +153,14 @@ export const useChatStore = defineStore('chat', {
 
       const chat = this.chats.find((item) => item.id === chatId)
       if (chat && index === list.length - 1) {
-        const updated = next[index]!
-        chat.lastMessage = {
-          body: updated.isDeleted ? 'Сообщение удалено' : updated.body,
-          createdAt: updated.createdAt,
-          authorLabel: updated.senderId === this.meId && !chat.isSaved ? 'Вы' : undefined,
-        }
+        const visible = [...next].reverse().find((item) => !item.isDeleted)
+        chat.lastMessage = visible
+          ? {
+              body: visible.body,
+              createdAt: visible.createdAt,
+              authorLabel: visible.senderId === this.meId && !chat.isSaved ? 'Вы' : undefined,
+            }
+          : undefined
       }
     },
 
