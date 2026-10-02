@@ -60,6 +60,7 @@ services:
       timeout: 5s
       retries: 3
       start_period: 5s
+    restart: unless-stopped
   administration:
     build: ../src/services/administration
     container_name: administration
@@ -72,6 +73,7 @@ services:
       timeout: 5s
       retries: 3
       start_period: 5s
+    restart: unless-stopped
   api-gateway:
     build: ../src/services/api-gateway
     container_name: api-gateway
@@ -87,6 +89,7 @@ services:
         condition: service_healthy
       administration:
         condition: service_healthy
+    restart: unless-stopped
   file-orchestrator:
     build: ../src/services/file-orchestrator
     container_name: file-orchestrator
@@ -106,6 +109,7 @@ services:
       timeout: 5s
       retries: 3
       start_period: 5s
+    restart: unless-stopped
   communication:
     build: ../src/services/communication
     container_name: communication
@@ -121,6 +125,7 @@ services:
       timeout: 5s
       retries: 3
       start_period: 5s
+    restart: unless-stopped
   ws-gateway:
     build: ../src/services/ws-gateway
     container_name: ws-gateway
@@ -134,6 +139,7 @@ services:
         condition: service_started
       communication:
         condition: service_healthy
+    restart: unless-stopped
   web:
     build: ../src/web
     container_name: web
@@ -150,6 +156,7 @@ services:
     depends_on:
       - api-gateway
       - ws-gateway
+    restart: unless-stopped
   nginx:
     build: ../src/services/nginx
     container_name: nginx
@@ -167,6 +174,7 @@ services:
       - web
       - api-gateway
       - ws-gateway
+    restart: unless-stopped
 
 volumes:
   pgdata:

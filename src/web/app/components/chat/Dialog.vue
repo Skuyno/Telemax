@@ -56,6 +56,7 @@ const groups = computed(() => {
   const result: { key: string; date: string; items: Message[] }[] = []
 
   for (const message of props.messages) {
+    if (message.isDeleted) continue
     const key = dayKey(message.createdAt)
     const last = result.at(-1)
     if (last?.key === key) last.items.push(message)
