@@ -25,6 +25,7 @@ SUBJECT_MESSAGE_UPDATED = "chat.message.updated"
 SUBJECT_MESSAGE_DELETED = "chat.message.deleted"
 SUBJECT_MESSAGE_READ = "chat.message.read"
 SUBJECT_TYPING = "chat.message.typing"
+SUBJECT_CHAT_SYNC_REQUIRED = "chat.sync_required"
 
 
 async def _require_membership(db: AsyncSession, chat_id: UUID, user_id: UUID) -> None:
@@ -57,6 +58,34 @@ async def _get_recipient_ids(
     """
     members = await chats_repository.list_chat_members(db, chat_id)
     return [str(m.user_id) for m in members if m.user_id != exclude_user_id]
+
+
+async def _publish_chat_sync_required(
+    db: AsyncSession,
+    chat_id: UUID,
+    reason: str,
+    extra_recipient_ids: Sequence[UUID] = (),
+) -> None:
+    """Tell affected users to reload chat-related data.
+
+    Args:
+        db: Async database session.
+        chat_id: Id of the changed chat.
+        reason: Short machine-readable reason for the refresh.
+        extra_recipient_ids: Users no longer present in the chat who still
+            need the event, such as a removed member.
+    """
+    recipient_ids = set(await _get_recipient_ids(db, chat_id))
+    recipient_ids.update(str(user_id) for user_id in extra_recipient_ids)
+
+    await nats_client.publish(
+        SUBJECT_CHAT_SYNC_REQUIRED,
+        {
+            "chat_id": str(chat_id),
+            "reason": reason,
+            "recipient_ids": sorted(recipient_ids),
+        },
+    )
 
 
 async def _validate_attachments(chat_id: UUID, file_ids: Sequence[UUID]) -> None:
@@ -567,12 +596,14 @@ async def create_group_chat(
     member_ids = sorted(set(data.member_ids) - {creator_id}, key=str)
     await _require_existing_users(member_ids)
 
-    return await chats_repository.create_group_chat(
+    chat = await chats_repository.create_group_chat(
         db,
         creator_id=creator_id,
         title=title,
         member_ids=member_ids,
     )
+    await _publish_chat_sync_required(db, chat.id, "created")
+    return chat
 
 
 async def add_group_members(
@@ -614,6 +645,7 @@ async def add_group_members(
     user_ids = sorted(set(data.user_ids) - {actor_id}, key=str)
     await _require_existing_users(user_ids)
     await chats_repository.add_chat_members(db, chat_id, user_ids)
+    await _publish_chat_sync_required(db, chat_id, "members_added")
 
 
 async def remove_group_member(
@@ -662,6 +694,12 @@ async def remove_group_member(
             )
 
         await chats_repository.remove_chat_member(db, chat_id, member_id)
+        await _publish_chat_sync_required(
+            db,
+            chat_id,
+            "member_removed",
+            extra_recipient_ids=[member_id],
+        )
         return
 
     if actor_membership.role != "owner":
@@ -686,6 +724,12 @@ async def remove_group_member(
         )
 
     await chats_repository.remove_chat_member(db, chat_id, member_id)
+    await _publish_chat_sync_required(
+        db,
+        chat_id,
+        "member_removed",
+        extra_recipient_ids=[member_id],
+    )
 
 
 async def update_group_chat(
@@ -735,3 +779,5 @@ async def update_group_chat(
     updated = await chats_repository.update_group_title(db, chat_id, title)
     if not updated:
         raise HTTPException(status_code=404, detail="group chat not found")
+
+    await _publish_chat_sync_required(db, chat_id, "updated")

@@ -32,7 +32,7 @@ class NatsClient:
         self.nc = await nats.connect(url)
         self.js = self.nc.jetstream()
 
-        subjects = ["chat.message.>", "file.upload.>"]
+        subjects = ["chat.>", "file.upload.>"]
         try:
             await self.js.add_stream(name="CHATS", subjects=subjects)
             logger.info("Created JetStream stream 'CHATS'")

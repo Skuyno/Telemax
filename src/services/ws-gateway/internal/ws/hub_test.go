@@ -79,6 +79,24 @@ func TestBuildOutboundEvent(t *testing.T) {
 		}
 	})
 
+	t.Run("chat sync required", func(t *testing.T) {
+		event := InboundEvent{ChatID: "c1", Reason: "members_added"}
+		out, ok := buildOutboundEvent(subjectChatSync, event)
+		if !ok {
+			t.Fatal("expected ok=true")
+		}
+		if out.Type != "chat.sync_required" {
+			t.Fatalf("unexpected type: %s", out.Type)
+		}
+		data, ok := out.Data.(ChatSyncData)
+		if !ok {
+			t.Fatalf("expected ChatSyncData, got %T", out.Data)
+		}
+		if data.ChatID != "c1" || data.Reason != "members_added" {
+			t.Fatalf("unexpected data: %+v", data)
+		}
+	})
+
 	t.Run("unknown subject", func(t *testing.T) {
 		_, ok := buildOutboundEvent("chat.message.mystery", InboundEvent{})
 		if ok {
