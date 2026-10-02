@@ -1,10 +1,11 @@
 """Shared fixture for communication tests."""
 
 import asyncio
+import os
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from httpx import ASGITransport, AsyncClient
+from httpx import ASGITransport, AsyncClient, Request, Response
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
@@ -13,7 +14,11 @@ from app.database import Base
 from app.dependencies import get_async_db
 from app.main import app
 
-TEST_DATABASE_URL = "postgresql+asyncpg://postgres:mysecretpassword@localhost:5430/test_telemax_communication"
+TEST_DATABASE_URL = os.getenv(
+    "TEST_DATABASE_URL",
+    "postgresql+asyncpg://postgres:mysecretpassword@localhost:5430/"
+    "test_telemax_communication",
+)
 
 # NullPool: no connection is kept alive between uses, so nothing here ever
 # survives past the event loop it was created on.
@@ -25,8 +30,8 @@ test_session_maker = async_sessionmaker(test_engine, expire_on_commit=False)
 def mock_identity_service():
     """Mock outbound httpx.AsyncClient calls made from app/chats/service.py.
 
-    Covers both the identity peer-existence check (GET, used when creating
-    a direct chat) and the file-orchestrator attachment validation check
+    Covers single and bulk identity lookups (GET, used for direct and group
+    chats) and the file-orchestrator attachment validation check
     (POST, used when sending a message with attachments). Permissive by
     default — the peer always exists, and every requested file id comes
     back valid — so most tests don't need to know these calls happen at
@@ -45,10 +50,15 @@ def mock_identity_service():
         # would call methods on an unconfigured mock, not the one below.
         mock_client_instance.__aenter__.return_value = mock_client_instance
 
-        # Set up the mock response for client.get()
-        mock_get_response = AsyncMock()
-        mock_get_response.status_code = 200
-        mock_client_instance.get.return_value = mock_get_response
+        def _echo_requested_users(url, **kwargs):
+            ids = [value for key, value in kwargs.get("params", []) if key == "ids"]
+            return Response(
+                200,
+                json=[{"id": user_id} for user_id in ids],
+                request=Request("GET", url),
+            )
+
+        mock_client_instance.get.side_effect = _echo_requested_users
 
         # client.post(...) for file-orchestrator's /internal/files/validate:
         # echo back whatever file_ids were asked about as all being valid.
@@ -95,10 +105,10 @@ async def client(create_models):
 
     app.dependency_overrides[get_async_db] = override_get_db
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as c:
-        yield c
-
-    async with test_engine.begin() as conn:
-        await conn.execute(text("TRUNCATE chats CASCADE"))
-
-    app.dependency_overrides.clear()
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as c:
+            yield c
+    finally:
+        app.dependency_overrides.clear()
+        async with test_engine.begin() as conn:
+            await conn.execute(text("TRUNCATE chats CASCADE"))

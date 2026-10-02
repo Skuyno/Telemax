@@ -10,7 +10,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.chats import repository as chats_repository
 from app.chats.models import Chat, ChatMember, Message
-from app.chats.schemas import CreateDirectChatRequest, SendMessageRequest
+from app.chats.schemas import (
+    AddGroupMembersRequest,
+    CreateDirectChatRequest,
+    CreateGroupChatRequest,
+    SendMessageRequest,
+    UpdateGroupChatRequest,
+)
 from app.config import settings
 from app.events import nats_client
 
@@ -19,6 +25,7 @@ SUBJECT_MESSAGE_UPDATED = "chat.message.updated"
 SUBJECT_MESSAGE_DELETED = "chat.message.deleted"
 SUBJECT_MESSAGE_READ = "chat.message.read"
 SUBJECT_TYPING = "chat.message.typing"
+SUBJECT_CHAT_SYNC_REQUIRED = "chat.sync_required"
 
 
 async def _require_membership(db: AsyncSession, chat_id: UUID, user_id: UUID) -> None:
@@ -53,9 +60,35 @@ async def _get_recipient_ids(
     return [str(m.user_id) for m in members if m.user_id != exclude_user_id]
 
 
-async def _validate_attachments(
-    chat_id: UUID, file_ids: Sequence[UUID]
+async def _publish_chat_sync_required(
+    db: AsyncSession,
+    chat_id: UUID,
+    reason: str,
+    extra_recipient_ids: Sequence[UUID] = (),
 ) -> None:
+    """Tell affected users to reload chat-related data.
+
+    Args:
+        db: Async database session.
+        chat_id: Id of the changed chat.
+        reason: Short machine-readable reason for the refresh.
+        extra_recipient_ids: Users no longer present in the chat who still
+            need the event, such as a removed member.
+    """
+    recipient_ids = set(await _get_recipient_ids(db, chat_id))
+    recipient_ids.update(str(user_id) for user_id in extra_recipient_ids)
+
+    await nats_client.publish(
+        SUBJECT_CHAT_SYNC_REQUIRED,
+        {
+            "chat_id": str(chat_id),
+            "reason": reason,
+            "recipient_ids": sorted(recipient_ids),
+        },
+    )
+
+
+async def _validate_attachments(chat_id: UUID, file_ids: Sequence[UUID]) -> None:
     """Verify a set of file ids are ready and belong to this chat.
 
     Delegates to file-orchestrator, the source of truth for files — this
@@ -82,6 +115,27 @@ async def _validate_attachments(
 
     if not set(file_ids).issubset(valid_ids):
         raise HTTPException(status_code=400, detail="invalid attachment file id")
+
+
+async def _require_existing_users(user_ids: Sequence[UUID]) -> None:
+    """Raise if any of the supplied user ids do not exist."""
+    if not user_ids:
+        return
+
+    async with httpx.AsyncClient() as client:
+        response = await client.get(
+            f"{settings.identity_url}/users",
+            params=[("ids", str(user_id)) for user_id in user_ids],
+        )
+
+    response.raise_for_status()
+
+    existing_ids = {UUID(user["id"]) for user in response.json()}
+    if existing_ids != set(user_ids):
+        raise HTTPException(
+            status_code=404,
+            detail="one or more users not found",
+        )
 
 
 async def get_or_create_direct_chat(
@@ -121,15 +175,18 @@ async def get_or_create_direct_chat(
         return chat, False
 
 
-async def list_user_chats(db: AsyncSession, user_id: UUID) -> Sequence[Chat]:
-    """List all chats the given user is a member of.
+async def list_user_chats(
+    db: AsyncSession, user_id: UUID
+) -> Sequence[tuple[Chat, str | None]]:
+    """List a user's chats together with optional group titles.
 
     Args:
         db: Async database session.
         user_id: Id of the user to look up chats for.
 
     Returns:
-        Sequence[Chat]: All chat the user is a member of.
+        Sequence[tuple[Chat, str | None]]: Chats paired with their group title;
+            direct chats have no title.
     """
     return await chats_repository.list_user_chats(db, user_id)
 
@@ -511,3 +568,216 @@ async def get_unread_counts(
         dict[UUID, int]: Unread count per chat id; chats with none are absent.
     """
     return await chats_repository.count_unread_bulk(db, user_id, chat_ids)
+
+
+async def create_group_chat(
+    db: AsyncSession,
+    creator_id: UUID,
+    data: CreateGroupChatRequest,
+) -> Chat:
+    """Validate participants and create a group chat.
+
+    Args:
+        db: Async database session.
+        creator_id: User creating the group.
+        data: Group title and invited user ids.
+
+    Returns:
+        Chat: The newly created group chat.
+
+    Raises:
+        HTTPException: 400 if the group title is blank.
+        HTTPException: 404 if one or more requested users do not exist.
+    """
+    title = data.title.strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="group title must not be blank")
+
+    member_ids = sorted(set(data.member_ids) - {creator_id}, key=str)
+    await _require_existing_users(member_ids)
+
+    chat = await chats_repository.create_group_chat(
+        db,
+        creator_id=creator_id,
+        title=title,
+        member_ids=member_ids,
+    )
+    await _publish_chat_sync_required(db, chat.id, "created")
+    return chat
+
+
+async def add_group_members(
+    db: AsyncSession,
+    chat_id: UUID,
+    actor_id: UUID,
+    data: AddGroupMembersRequest,
+) -> None:
+    """Add users to a group chat on behalf of its owner.
+
+    Args:
+        db: Async database session.
+        chat_id: Id of the group chat.
+        actor_id: Id of the user performing the operation.
+        data: User ids to add.
+
+    Raises:
+        HTTPException: 403 if the actor is not the group owner.
+        HTTPException: 404 if one or more requested users do not exist.
+        HTTPException: 409 if the chat is not a group chat.
+    """
+    context = await chats_repository.get_chat_and_member(db, chat_id, actor_id)
+    if context is None:
+        raise HTTPException(status_code=403, detail="not a user chat")
+
+    chat, actor_membership = context
+    if chat.type != "group":
+        raise HTTPException(
+            status_code=409,
+            detail="members can only be added to group chats",
+        )
+
+    if actor_membership.role != "owner":
+        raise HTTPException(
+            status_code=403,
+            detail="only the group owner can add members",
+        )
+
+    user_ids = sorted(set(data.user_ids) - {actor_id}, key=str)
+    await _require_existing_users(user_ids)
+    await chats_repository.add_chat_members(db, chat_id, user_ids)
+    await _publish_chat_sync_required(db, chat_id, "members_added")
+
+
+async def remove_group_member(
+    db: AsyncSession,
+    chat_id: UUID,
+    actor_id: UUID,
+    member_id: UUID,
+) -> None:
+    """Remove a member from a group or let a member leave it.
+
+    Args:
+        db: Async database session.
+        chat_id: Id of the group chat.
+        actor_id: Id of the user performing the operation.
+        member_id: Id of the member to remove.
+
+    Raises:
+        HTTPException: 403 if the actor cannot remove the requested member.
+        HTTPException: 409 if the chat is not a group or the owner would
+            be removed.
+    """
+    actor_context = await chats_repository.get_chat_and_member(
+        db,
+        chat_id,
+        actor_id,
+    )
+    if actor_context is None:
+        if actor_id == member_id:
+            return
+
+        raise HTTPException(status_code=403, detail="not a user chat")
+
+    chat, actor_membership = actor_context
+
+    if chat.type != "group":
+        raise HTTPException(
+            status_code=409,
+            detail="members can only be removed from group chats",
+        )
+
+    if actor_id == member_id:
+        if actor_membership.role == "owner":
+            raise HTTPException(
+                status_code=409,
+                detail="group owner cannot leave the group",
+            )
+
+        await chats_repository.remove_chat_member(db, chat_id, member_id)
+        await _publish_chat_sync_required(
+            db,
+            chat_id,
+            "member_removed",
+            extra_recipient_ids=[member_id],
+        )
+        return
+
+    if actor_membership.role != "owner":
+        raise HTTPException(
+            status_code=403,
+            detail="only the group owner can remove other members",
+        )
+
+    target_context = await chats_repository.get_chat_and_member(
+        db,
+        chat_id,
+        member_id,
+    )
+    if target_context is None:
+        return
+
+    _, target_membership = target_context
+    if target_membership.role == "owner":
+        raise HTTPException(
+            status_code=409,
+            detail="group owner cannot be removed",
+        )
+
+    await chats_repository.remove_chat_member(db, chat_id, member_id)
+    await _publish_chat_sync_required(
+        db,
+        chat_id,
+        "member_removed",
+        extra_recipient_ids=[member_id],
+    )
+
+
+async def update_group_chat(
+    db: AsyncSession,
+    chat_id: UUID,
+    actor_id: UUID,
+    data: UpdateGroupChatRequest,
+) -> None:
+    """Update a group chat on behalf of its owner.
+
+    Args:
+        db: Async database session.
+        chat_id: Id of the group chat.
+        actor_id: Id of the user performing the operation.
+        data: Group fields to update.
+
+    Raises:
+        HTTPException: 400 if the title is blank.
+        HTTPException: 403 if the actor is not the group owner.
+        HTTPException: 404 if the group subtype row does not exist.
+        HTTPException: 409 if the chat is not a group chat.
+    """
+    context = await chats_repository.get_chat_and_member(db, chat_id, actor_id)
+    if context is None:
+        raise HTTPException(status_code=403, detail="not a user chat")
+
+    chat, actor_membership = context
+    if chat.type != "group":
+        raise HTTPException(
+            status_code=409,
+            detail="only group chats can be updated",
+        )
+
+    if actor_membership.role != "owner":
+        raise HTTPException(
+            status_code=403,
+            detail="only the group owner can update the group",
+        )
+
+    title = data.title.strip()
+    if not title:
+        raise HTTPException(
+            status_code=400,
+            detail="group title must not be blank",
+        )
+
+    updated = await chats_repository.update_group_title(db, chat_id, title)
+    if not updated:
+        raise HTTPException(status_code=404, detail="group chat not found")
+
+    await _publish_chat_sync_required(db, chat_id, "updated")
