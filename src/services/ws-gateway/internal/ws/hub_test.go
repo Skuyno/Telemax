@@ -1,6 +1,10 @@
 package ws
 
-import "testing"
+import (
+	"encoding/json"
+	"reflect"
+	"testing"
+)
 
 func TestBuildOutboundEvent(t *testing.T) {
 	t.Run("message created", func(t *testing.T) {
@@ -103,4 +107,77 @@ func TestBuildOutboundEvent(t *testing.T) {
 			t.Fatal("expected ok=false for an unknown subject")
 		}
 	})
+}
+
+func TestChatSyncFanout(t *testing.T) {
+	for _, reason := range []string{"created", "updated", "members_added", "member_removed"} {
+		t.Run(reason, func(t *testing.T) {
+			hub := NewHub(nil, nil)
+			clients := map[string]*Client{
+				"owner tab 1": {send: make(chan []byte, 1)},
+				"owner tab 2": {send: make(chan []byte, 1)},
+				"member":      {send: make(chan []byte, 1)},
+				"removed":     {send: make(chan []byte, 1)},
+				"outsider":    {send: make(chan []byte, 1)},
+			}
+			hub.users["owner"] = map[*Client]struct{}{
+				clients["owner tab 1"]: {}, clients["owner tab 2"]: {},
+			}
+			for _, userID := range []string{"member", "removed", "outsider"} {
+				hub.users[userID] = map[*Client]struct{}{clients[userID]: {}}
+			}
+			payload, err := json.Marshal(map[string]interface{}{
+				"chat_id": "c1", "reason": reason,
+				"recipient_ids": []string{"owner", "member", "removed", "offline"},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			hub.HandleNatsEvent(subjectChatSync, payload)
+			want := map[string]interface{}{
+				"type": "chat.sync_required",
+				"data": map[string]interface{}{"chat_id": "c1", "reason": reason},
+			}
+			for name, client := range clients {
+				select {
+				case frame := <-client.send:
+					if name == "outsider" {
+						t.Fatal("sync leaked to a user outside recipient_ids")
+					}
+					var got map[string]interface{}
+					if err := json.Unmarshal(frame, &got); err != nil {
+						t.Fatal(err)
+					}
+					if !reflect.DeepEqual(got, want) {
+						t.Fatalf("%s: frame = %s, want %+v", name, frame, want)
+					}
+				default:
+					if name != "outsider" {
+						t.Fatalf("%s did not receive sync", name)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestChatSyncIgnoresInvalidEvents(t *testing.T) {
+	for _, tc := range []struct {
+		name, subject, payload string
+	}{
+		{"malformed JSON", subjectChatSync, `{`},
+		{"invalid recipients", subjectChatSync, `{"recipient_ids":42}`},
+		{"no recipients", subjectChatSync, `{"chat_id":"c1","reason":"created"}`},
+		{"unknown subject", "chat.unknown", `{"recipient_ids":["u1"]}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			hub := NewHub(nil, nil)
+			client := &Client{send: make(chan []byte, 1)}
+			hub.users["u1"] = map[*Client]struct{}{client: {}}
+			hub.HandleNatsEvent(tc.subject, []byte(tc.payload))
+			if len(client.send) != 0 {
+				t.Fatal("unexpected frame for an ignored event")
+			}
+		})
+	}
 }
