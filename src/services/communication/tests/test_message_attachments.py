@@ -60,6 +60,7 @@ async def test_send_message_rejects_invalid_attachment(
     client: AsyncClient, mock_identity_service
 ):
     """A file id file-orchestrator doesn't recognize is rejected with 400."""
+
     async def fake_post(*args, **kwargs):
         response = AsyncMock()
         response.raise_for_status = lambda: None

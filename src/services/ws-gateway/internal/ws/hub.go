@@ -24,14 +24,15 @@ const (
 	subjectMessageDeleted = "chat.message.deleted"
 	subjectMessageRead    = "chat.message.read"
 	subjectTyping         = "chat.message.typing"
+	subjectChatSync       = "chat.sync_required"
 
 	subjectUploadProgress  = "file.upload.progress"
 	subjectUploadCompleted = "file.upload.completed"
 )
 
-// InboundEvent is a superset of the fields any chat.message.* event from
-// communication might carry. Fields irrelevant to a given subject are left
-// as zero values by json.Unmarshal, not an error.
+// InboundEvent is a superset of the fields supported NATS events might carry.
+// Fields irrelevant to a given subject are left as zero values by
+// json.Unmarshal, not an error.
 type InboundEvent struct {
 	ID                string   `json:"id"`
 	ChatID            string   `json:"chat_id"`
@@ -43,6 +44,7 @@ type InboundEvent struct {
 	EditedAt          string   `json:"edited_at"`
 	LastReadMessageID string   `json:"last_read_message_id"`
 	AttachmentFileIDs []string `json:"attachment_file_ids"`
+	Reason            string   `json:"reason"`
 
 	FileID        string `json:"file_id"`
 	UploaderID    string `json:"uploader_id"`
@@ -77,6 +79,11 @@ type TypingData struct {
 	UserID string `json:"user_id"`
 }
 
+type ChatSyncData struct {
+	ChatID string `json:"chat_id"`
+	Reason string `json:"reason"`
+}
+
 type UploadProgressData struct {
 	FileID        string `json:"file_id"`
 	ChatID        string `json:"chat_id"`
@@ -93,7 +100,7 @@ type UploadCompletedData struct {
 }
 
 // OutboundEvent is the envelope every WebSocket client receives, regardless
-// of what kind of chat.message.* event triggered it.
+// of which supported NATS event triggered it.
 type OutboundEvent struct {
 	Type string      `json:"type"`
 	Data interface{} `json:"data"`
@@ -406,6 +413,14 @@ func buildOutboundEvent(subject string, event InboundEvent) (OutboundEvent, bool
 				UserID: event.UserID,
 			},
 		}, true
+	case subjectChatSync:
+		return OutboundEvent{
+			Type: "chat.sync_required",
+			Data: ChatSyncData{
+				ChatID: event.ChatID,
+				Reason: event.Reason,
+			},
+		}, true
 	case subjectUploadProgress:
 		return OutboundEvent{
 			Type: "upload.progress",
@@ -436,9 +451,9 @@ func buildOutboundEvent(subject string, event InboundEvent) (OutboundEvent, bool
 	}
 }
 
-// HandleNatsEvent parses one chat.message.* event and relays it to the
-// connections of every id in its recipient_ids, using the NATS subject
-// (not the payload) to decide which WebSocket envelope type to send.
+// HandleNatsEvent parses a supported event and relays it to the connections
+// of every id in its recipient_ids, using the NATS subject (not the payload)
+// to decide which WebSocket envelope type to send.
 func (h *Hub) HandleNatsEvent(subject string, data []byte) {
 	var event InboundEvent
 	if err := json.Unmarshal(data, &event); err != nil {

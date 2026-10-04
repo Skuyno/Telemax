@@ -108,3 +108,12 @@ class DirectChat(Base):
     chat_id: Mapped[UUID] = mapped_column(ForeignKey("chats.id"), unique=True)
     user_lo: Mapped[UUID] = mapped_column(primary_key=True)
     user_hi: Mapped[UUID] = mapped_column(primary_key=True)
+
+
+class GroupChat(Base):
+    """Group-chat subtype data stored separately from common chat fields."""
+
+    __tablename__ = "group_chats"
+
+    chat_id: Mapped[UUID] = mapped_column(ForeignKey("chats.id"), primary_key=True)
+    title: Mapped[str] = mapped_column(String(128))
