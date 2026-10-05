@@ -60,8 +60,10 @@ export function useChats() {
         chats.map((chat) => api<ChatMemberResponse[]>(`/chats/${chat.id}/members`)),
       )
       // Чат с самим собой — единственный участник это я.
-      const peerIds = members.map(
-        (list) => list.find((member) => member.user_id !== me)?.user_id ?? me,
+      const peerIds = members.map((list, index) =>
+        chats[index]!.type === 'group'
+          ? me
+          : (list.find((member) => member.user_id !== me)?.user_id ?? me),
       )
 
       const uniqueIds = [...new Set(peerIds)]
@@ -72,21 +74,26 @@ export function useChats() {
 
       chatStore.setChats(
         chats.map((chat, index): Chat => {
+          const isGroup = chat.type === 'group'
           const peer = userById.get(peerIds[index]!)
-          const isSaved = peerIds[index] === me
-          const title = isSaved
-            ? SAVED_TITLE
-            : peer
-              ? displayName(peer)
-              : 'Неизвестный пользователь'
+          const isSaved = !isGroup && peerIds[index] === me
+          const title = isGroup
+            ? (chat.title ?? 'Группа')
+            : isSaved
+              ? SAVED_TITLE
+              : peer
+                ? displayName(peer)
+                : 'Неизвестный пользователь'
           const last = chat.last_message
           return {
             id: chat.id,
+            type: chat.type,
             title,
             initials: toInitials(title),
             peerId: peerIds[index]!,
-            avatarUrl: isSaved ? null : (peer?.avatar_url ?? null),
+            avatarUrl: isGroup || isSaved ? null : (peer?.avatar_url ?? null),
             unreadCount: chat.unread_count,
+            memberCount: isGroup ? members[index]!.length : undefined,
             isSaved,
             lastMessage: last
               ? {
@@ -231,6 +238,34 @@ export function useChats() {
     chatStore.setSearch('')
     chatStore.userResults = []
     chatStore.setActiveChat(chat.id)
+  }
+
+  async function createGroupChat(title: string, members: UserSearchResult[]) {
+    const chat = await api<{ id: string }>('/chats/group', {
+      method: 'POST',
+      body: { title: title.trim(), member_ids: members.map((user) => user.id) },
+    })
+
+    if (!chatStore.chats.some((item) => item.id === chat.id)) {
+      chatStore.setChats([
+        ...chatStore.chats,
+        {
+          id: chat.id,
+          type: 'group',
+          title: title.trim(),
+          initials: toInitials(title.trim()),
+          peerId: chatStore.meId ?? '',
+          avatarUrl: null,
+          unreadCount: 0,
+          memberCount: members.length + 1,
+        },
+      ])
+    }
+
+    chatStore.setSearch('')
+    chatStore.userResults = []
+    chatStore.setActiveChat(chat.id)
+    return chat.id
   }
 
   async function openSavedChat() {
@@ -378,6 +413,7 @@ export function useChats() {
     searchUsers,
     openChatWith,
     openSavedChat,
+    createGroupChat,
     handleRealtimeEvent,
     resync,
     markRead,

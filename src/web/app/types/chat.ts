@@ -6,11 +6,13 @@ export interface ChatPreview {
 
 export interface Chat {
   id: string
+  type: 'direct' | 'group'
   title: string
   initials: string
   peerId: string
   avatarUrl: string | null
   unreadCount: number
+  memberCount?: number
   isSaved?: boolean
   lastMessage?: ChatPreview
 }
@@ -55,6 +57,8 @@ export interface UserSearchResult {
 /** Raw response shape from GET /chats */
 export interface ChatResponse {
   id: string
+  type: 'direct' | 'group'
+  title: string | null
   unread_count: number
   last_message: {
     body: string

@@ -66,7 +66,13 @@ watch(
 )
 
 const menuOpen = ref(false)
+const groupOpen = ref(false)
 const menuRoot = ref<HTMLElement | null>(null)
+
+function onGroupCreated(chatId: string) {
+  groupOpen.value = false
+  emit('select', chatId)
+}
 
 const canAdminister = computed(
   () => auth.user?.role === 'admin' || auth.user?.role === 'superuser',
@@ -132,6 +138,19 @@ onBeforeUnmount(() => {
 
           <Transition name="menu">
             <div v-if="menuOpen" class="sidebar__dropdown">
+              <button
+                type="button"
+                class="sidebar__menu-item"
+                @click="(menuOpen = false), (groupOpen = true)"
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                  <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+                  <circle cx="9" cy="7" r="4" />
+                  <path d="M19 8v6M16 11h6" />
+                </svg>
+                Новая группа
+              </button>
+
               <NuxtLink
                 v-if="canAdminister"
                 to="/administration"
@@ -233,6 +252,8 @@ onBeforeUnmount(() => {
       </span>
       <span class="sidebar__me-name">{{ myName }}</span>
     </footer>
+
+    <ChatGroupCreate v-if="groupOpen" @close="groupOpen = false" @created="onGroupCreated" />
   </aside>
 </template>
 
@@ -331,7 +352,12 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 12px;
+  width: 100%;
   padding: 11px 12px;
+  background: none;
+  border: none;
+  text-align: left;
+  cursor: pointer;
   border-radius: 10px;
   font-family: var(--font-heading);
   font-weight: 600;
