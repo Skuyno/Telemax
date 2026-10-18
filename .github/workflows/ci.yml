@@ -4,7 +4,7 @@ on:
   push:
     branches: [main, dev]
   pull_request:
-    branches: [main]
+    branches: [main, dev]
 
 jobs:
   lint:
@@ -139,6 +139,21 @@ jobs:
         working-directory: src/services/administration
         run: pytest -q
 
+  test-ws-gateway:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: src/services/ws-gateway/go.mod
+          cache-dependency-path: src/services/ws-gateway/go.sum
+      - name: Run tests
+        working-directory: src/services/ws-gateway
+        run: go test -race ./...
+      - name: Vet
+        working-directory: src/services/ws-gateway
+        run: go vet ./...
+
   deploy:
     # Only after every check passes, and only for a dev -> main merge — not
     # a direct push to main, not a push to dev, not a PR run. GitHub's
@@ -154,6 +169,7 @@ jobs:
       - test-file-orchestrator
       - test-api-gateway
       - test-administration
+      - test-ws-gateway
     if: >-
       github.ref == 'refs/heads/main' &&
       github.event_name == 'push' &&

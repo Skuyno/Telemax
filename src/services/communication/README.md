@@ -1,6 +1,6 @@
 # Communication Service
 
-Ядро переписки Telemax. Сервис создаёт личные диалоги, проверяет членство, хранит сообщения и публикует события для realtime-доставки. Пользователей и JWT он не хранит.
+Ядро переписки Telemax. Сервис создаёт личные и групповые чаты, проверяет членство, хранит сообщения и публикует события для realtime-доставки. Пользователей и JWT он не хранит.
 
 ## Структура
 
@@ -21,8 +21,12 @@ tests/         интеграционные тесты чатов и истор�
 | Метод и путь | Назначение |
 |---|---|
 | `POST /chats/direct` | Создать или получить личный диалог |
-| `GET /chats` | Получить диалоги пользователя с последним сообщением |
+| `POST /chats/group` | Создать новую группу |
+| `GET /chats` | Получить личные и групповые чаты с последним сообщением |
 | `GET /chats/{id}/members` | Получить участников диалога |
+| `POST /chats/{id}/members` | Добавить участников группы (владелец) |
+| `DELETE /chats/{id}/members/{user_id}` | Удалить участника (владелец) или выйти самому |
+| `PATCH /chats/{id}` | Переименовать группу (владелец) |
 | `POST /chats/{id}/messages` | Сохранить и отправить сообщение |
 | `GET /chats/{id}/messages` | Получить историю с курсором `before_msg_id` |
 | `PATCH /chats/{id}/messages/{message_id}` | Отредактировать своё сообщение |
@@ -34,11 +38,36 @@ tests/         интеграционные тесты чатов и истор�
 | `PATCH /chats/{id}/settings` | Изменить настройки чата (например, `notifications_muted`) |
 | `GET /health/db` | Проверить подключение к БД |
 
-`GET /chats` теперь также отдаёт `unread_count` на каждый чат — число сообщений от собеседника, отправленных позже вашего последнего `POST /chats/{id}/read`.
+`GET /chats` отдаёт `id`, `type` (`direct`/`group`), `title` (`null` для direct), `last_message` и `unread_count`. Последнее поле — число чужих сообщений, созданных позже сохранённой границы прочтения.
 
 `POST /chats/{id}/messages` и `GET /chats/{id}/messages` (а также `.../search`) принимают/отдают `attachment_file_ids: list[UUID]` — id файлов из **file-orchestrator**, прикреплённых к сообщению (см. раздел «Вложения» ниже).
 
 Точные схемы доступны по `/docs` и `/openapi.json`. Все пользовательские маршруты ожидают внутренний заголовок `X-User-Id` от API Gateway.
+
+### Групповые чаты
+
+```text
+POST /chats/group
+{ "title": "Команда", "member_ids": ["<uuid>"] }
+-> 201 { "id": "<uuid>" }
+
+POST /chats/{id}/members
+{ "user_ids": ["<uuid>"] }
+-> 204
+
+PATCH /chats/{id}
+{ "title": "Новое название" }
+-> 204
+
+DELETE /chats/{id}/members/{user_id}
+-> 204
+```
+
+`member_ids` можно не передавать: группа начинается с одного владельца. Создатель получает роль `owner`, остальные — `member`; повторяющиеся UUID не создают дублей. Название ограничено 128 символами, пробелы по краям удаляются. Повторное создание всегда создаёт новую группу, даже с тем же составом.
+
+Добавлять участников и менять название может только владелец. Участник может выйти, владелец — удалить другого участника, но не себя: передача владения пока не реализована. Повторное добавление/удаление не дублирует членство; повторное добавление может вновь отправить sync. После удаления чат исчезает из списка пользователя, доступ к истории и отправке закрывается; сообщения сохраняются для оставшихся участников.
+
+Ошибки: `403` — нет членства/прав владельца; `404` — неизвестный приглашённый пользователь; `409` — групповая операция над direct-чатом или выход владельца; `400` — название из пробелов; `422` — неверная схема (в том числе пустое/слишком длинное название). Неизвестный пользователь отменяет создание/добавление целиком.
 
 ### Internal-эндпоинты (`/internal/...`)
 
@@ -73,14 +102,16 @@ tests/         интеграционные тесты чатов и истор�
 
 ## Взаимодействия
 
-- **PostgreSQL** хранит `chats`, `chat_members`, `direct_chats`, `messages`, `message_attachments`, `chat_read_states` и `chat_settings`.
-- **Identity Service** проверяет существование второго участника при создании диалога.
+- **PostgreSQL** хранит `chats`, `chat_members`, `direct_chats`, `group_chats`, `messages`, `message_attachments`, `chat_read_states` и `chat_settings`.
+- **Identity Service** проверяет существование второго участника личного диалога и пакетно проверяет приглашённых в группу через `GET /users?ids=...`.
 - **File Orchestrator** проверяет `attachment_file_ids` при отправке сообщения (`POST /internal/files/validate`) и, наоборот, вызывает этот сервис (`GET /internal/chats/{id}/members[/{user_id}]`), чтобы авторизовать доступ к файлу и разослать прогресс загрузки нужным участникам чата.
-- **NATS JetStream** — стрим `CHATS` теперь общий с file-orchestrator, `subjects=["chat.message.>", "file.upload.>"]` (оба сервиса идемпотентно обеспечивают этот список при подключении: `add_stream`, а если уже существует — `update_stream`). В `chat.message.>` попадают `chat.message.created`, `chat.message.updated`, `chat.message.deleted`, `chat.message.read` и `chat.message.typing`; `file.upload.>` целиком публикует file-orchestrator.
+- **NATS JetStream** — общий с file-orchestrator стрим `CHATS`, `subjects=["chat.>", "file.upload.>"]` (оба сервиса обеспечивают этот список через `add_stream`/`update_stream`). Communication публикует `chat.message.created`, `.updated`, `.deleted`, `.read`, `.typing` и `chat.sync_required`; `file.upload.>` публикует file-orchestrator.
 
 Все события несут `chat_id` и `recipient_ids` (кому доставить); конкретные поля зависят от типа (`id`/`body`/`created_at` для created/updated, `last_read_message_id` для read, `attachment_file_ids` дополнительно для deleted и т.д.) — точный набор полей на конкретный subject смотрите в `app/chats/service.py`. **WS Gateway не пересылает эти события как есть** — `internal/ws/hub.go` разбирает subject и заворачивает каждое в свой конверт `{type, data}` для клиента; см. README `ws-gateway`.
 
 Повторный запрос с тем же сочетанием `sender_id + client_msg_id` возвращает существующее сообщение. Сначала выполняется commit в PostgreSQL, затем публикация в NATS; эти операции не образуют общую транзакцию.
+
+Изменения группы публикуют `chat.sync_required` с `{chat_id, reason, recipient_ids}`. Причины: `created`, `updated`, `members_added`, `member_removed`. Получатели — текущие участники, а при удалении также удалённый пользователь. Клиент получает только `{type: "chat.sync_required", data: {chat_id, reason}}` и перечитывает состояние через REST. При сбое NATS изменение уже может быть сохранено, хотя HTTP-запрос завершится ошибкой; гарантированного восстановления публикации пока нет. На reconnect нужно обновлять список чатов.
 
 ## Конфигурация
 
@@ -110,3 +141,5 @@ poetry run pytest -q
 ```
 
 Активировать окружение вручную не требуется. Для отдельного запуска должны быть доступны PostgreSQL, Identity Service и NATS. В составе системы используется `docker compose up --build` из каталога `deploy`.
+
+Тесты используют отдельную БД `test_telemax_communication` на `localhost:5430`; адрес можно переопределить через `TEST_DATABASE_URL`. Используйте только тестовую БД: фикстура очищает чаты после каждого сценария. Identity и NATS замоканы. `create_all` создаёт недостающие таблицы, но не обновляет старые колонки — для проверки миграций запускайте `alembic upgrade head` на отдельной чистой БД, указав её в `POSTGRES_*`.

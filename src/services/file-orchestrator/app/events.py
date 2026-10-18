@@ -16,7 +16,7 @@ from nats.js.errors import APIError
 
 logger = logging.getLogger(__name__)
 
-STREAM_SUBJECTS = ["chat.message.>", "file.upload.>"]
+STREAM_SUBJECTS = ["chat.>", "file.upload.>"]
 
 
 class NatsClient:
@@ -100,9 +100,7 @@ class NatsClient:
             else:
                 await msg.ack()
 
-        await self.js.subscribe(
-            subject, durable="file-orchestrator", cb=_on_message
-        )
+        await self.js.subscribe(subject, durable="file-orchestrator", cb=_on_message)
 
 
 nats_client = NatsClient()

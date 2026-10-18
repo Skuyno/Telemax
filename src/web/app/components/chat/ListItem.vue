@@ -8,7 +8,7 @@ defineEmits<{ select: [] }>()
 
 const chatStore = useChatStore()
 
-const online = computed(() => chatStore.isPeerOnline(props.chat))
+const online = computed(() => props.chat.type === 'direct' && chatStore.isPeerOnline(props.chat))
 const typing = computed(() => chatStore.isPeerTyping(props.chat.id))
 const unread = computed(() => (props.active ? 0 : props.chat.unreadCount))
 
@@ -24,6 +24,7 @@ const preview = computed(() => {
   <button type="button" class="row" :class="{ 'is-active': active }" @click="$emit('select')">
     <span class="row__avatar">
       <ChatSavedIcon v-if="chat.isSaved" />
+      <ChatGroupIcon v-else-if="chat.type === 'group'" />
       <UserAvatar v-else :url="chat.avatarUrl" :initials="chat.initials" />
       <span v-if="online" class="row__online" aria-label="в сети" />
     </span>

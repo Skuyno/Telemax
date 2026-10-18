@@ -40,6 +40,12 @@ func main() {
 	}
 	log.Println("Subscribed to chat.message.*")
 
+	_, err = natsClient.SubscribeToMessagesWithRetry("chat.sync_required", hub.HandleNatsEvent)
+	if err != nil {
+		log.Fatalf("Failed to subscribe to chat sync events: %v", err)
+	}
+	log.Println("Subscribed to chat.sync_required")
+
 	_, err = natsClient.SubscribeToMessagesWithRetry("file.upload.*", hub.HandleNatsEvent)
 	if err != nil {
 		log.Fatalf("Failed to subscribe to NATS: %v", err)

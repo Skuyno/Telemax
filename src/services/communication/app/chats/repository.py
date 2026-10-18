@@ -4,7 +4,8 @@ from datetime import datetime, timezone
 from typing import Sequence
 from uuid import UUID
 
-from sqlalchemy import exists, func, or_, select
+from sqlalchemy import delete, exists, func, or_, select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,6 +14,7 @@ from app.chats.models import (
     ChatMember,
     ChatReadState,
     DirectChat,
+    GroupChat,
     Message,
     MessageAttachment,
 )
@@ -81,23 +83,25 @@ async def create_direct_chat(
 async def list_user_chats(
     db: AsyncSession,
     user_id: UUID,
-) -> Sequence[Chat]:
-    """Look up all chats the given user is a member of.
+) -> Sequence[tuple[Chat, str | None]]:
+    """Look up a user's chats together with optional group titles.
 
     Args:
         db: Async database session.
         user_id: Id of the user to look up chats for.
 
     Returns:
-        Sequence[Chat]: All chats the user is a member of.
+        Sequence[tuple[Chat, str | None]]: Chats paired with their group title;
+            direct chats have no title.
     """
     result = await db.execute(
-        select(Chat)
+        select(Chat, GroupChat.title)
+        .outerjoin(GroupChat, GroupChat.chat_id == Chat.id)
         .join(ChatMember, Chat.id == ChatMember.chat_id)
         .where(ChatMember.user_id == user_id)
     )
 
-    return result.scalars().all()
+    return [(chat, title) for chat, title in result.all()]
 
 
 async def get_last_messages(
@@ -156,6 +160,39 @@ async def is_user_in_chat(db: AsyncSession, chat_id: UUID, user_id: UUID) -> boo
         )
     )
     return result.scalar()
+
+
+async def get_chat_and_member(
+    db: AsyncSession,
+    chat_id: UUID,
+    user_id: UUID,
+) -> tuple[Chat, ChatMember] | None:
+    """Return a chat together with the requesting user's membership.
+
+    Args:
+        db: Async database session.
+        chat_id: Id of the chat.
+        user_id: Id of the requesting user.
+
+    Returns:
+        tuple[Chat, ChatMember] | None: Chat and membership when the user
+            belongs to the chat, otherwise None.
+    """
+    result = await db.execute(
+        select(Chat, ChatMember)
+        .join(ChatMember, ChatMember.chat_id == Chat.id)
+        .where(
+            Chat.id == chat_id,
+            ChatMember.user_id == user_id,
+        )
+    )
+
+    row = result.one_or_none()
+    if row is None:
+        return None
+
+    chat, member = row
+    return chat, member
 
 
 async def create_message(
@@ -496,3 +533,137 @@ async def list_chat_peer_ids(
     )
 
     return result.scalars().all()
+
+
+async def create_group_chat(
+    db: AsyncSession,
+    creator_id: UUID,
+    title: str,
+    member_ids: Sequence[UUID],
+) -> Chat:
+    """Create a group chat and its membership rows in one transaction.
+
+    Args:
+        db: Async database session.
+        creator_id: User creating the group.
+        title: Group title.
+        member_ids: Users invited to the group, excluding the creator.
+
+    Returns:
+        Chat: The newly created group chat.
+    """
+    chat = Chat(type="group", created_by=creator_id)
+    db.add(chat)
+    await db.flush()
+
+    members = [
+        ChatMember(
+            chat_id=chat.id,
+            user_id=creator_id,
+            role="owner",
+        ),
+        *[
+            ChatMember(
+                chat_id=chat.id,
+                user_id=member_id,
+                role="member",
+            )
+            for member_id in member_ids
+        ],
+    ]
+
+    db.add_all(
+        [
+            GroupChat(chat_id=chat.id, title=title),
+            *members,
+        ]
+    )
+
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise
+
+    return chat
+
+
+async def add_chat_members(
+    db: AsyncSession,
+    chat_id: UUID,
+    user_ids: Sequence[UUID],
+) -> None:
+    """Add users to a chat, ignoring existing memberships.
+
+    Args:
+        db: Async database session.
+        chat_id: Id of the chat.
+        user_ids: Ids of users to add with the member role.
+    """
+    if not user_ids:
+        return
+
+    statement = (
+        pg_insert(ChatMember)
+        .values(
+            [
+                {
+                    "chat_id": chat_id,
+                    "user_id": user_id,
+                    "role": "member",
+                }
+                for user_id in user_ids
+            ]
+        )
+        .on_conflict_do_nothing(index_elements=["chat_id", "user_id"])
+    )
+
+    await db.execute(statement)
+    await db.commit()
+
+
+async def remove_chat_member(
+    db: AsyncSession,
+    chat_id: UUID,
+    user_id: UUID,
+) -> None:
+    """Remove a user from a chat.
+
+    Args:
+        db: Async database session.
+        chat_id: Id of the chat.
+        user_id: Id of the user to remove.
+    """
+    await db.execute(
+        delete(ChatMember).where(
+            ChatMember.chat_id == chat_id,
+            ChatMember.user_id == user_id,
+        )
+    )
+    await db.commit()
+
+
+async def update_group_title(
+    db: AsyncSession,
+    chat_id: UUID,
+    title: str,
+) -> bool:
+    """Update a group chat title.
+
+    Args:
+        db: Async database session.
+        chat_id: Id of the group chat.
+        title: New group title.
+
+    Returns:
+        bool: True if the group row was updated.
+    """
+    result = await db.execute(
+        update(GroupChat)
+        .where(GroupChat.chat_id == chat_id)
+        .values(title=title)
+        .returning(GroupChat.chat_id)
+    )
+    await db.commit()
+
+    return result.scalar_one_or_none() is not None

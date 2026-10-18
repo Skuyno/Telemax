@@ -1,6 +1,7 @@
 """Pydantic schemas for chats."""
 
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -31,11 +32,13 @@ class MessagePreview(BaseModel):
 
 
 class ChatResponse(BaseModel):
-    """Chat list item: id, unread count, and a preview of the last message."""
+    """Chat list item with its type, title, unread count, and last message."""
 
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
+    type: Literal["direct", "group"]
+    title: str | None = None
     last_message: MessagePreview | None
     unread_count: int = 0
 
@@ -83,3 +86,30 @@ class MessageResponse(BaseModel):
     is_deleted: bool
     created_at: datetime
     attachment_file_ids: list[UUID] = Field(default_factory=list)
+
+
+class CreateGroupChatRequest(BaseModel):
+    """Request to create a group chat."""
+
+    title: str = Field(min_length=1, max_length=128)
+    member_ids: list[UUID] = Field(default_factory=list)
+
+
+class CreateGroupChatResponse(BaseModel):
+    """Response returned after creating a group chat."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+
+
+class AddGroupMembersRequest(BaseModel):
+    """Request to add users to a group chat."""
+
+    user_ids: list[UUID] = Field(min_length=1)
+
+
+class UpdateGroupChatRequest(BaseModel):
+    """Request to update a group chat."""
+
+    title: str = Field(min_length=1, max_length=128)

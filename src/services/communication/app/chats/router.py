@@ -8,14 +8,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.chats import service as chats_service
 from app.chats.models import Message
 from app.chats.schemas import (
+    AddGroupMembersRequest,
     ChatMembersResponse,
     ChatResponse,
     CreateDirectChatRequest,
     CreateDirectChatResponse,
+    CreateGroupChatRequest,
+    CreateGroupChatResponse,
     EditMessageRequest,
     MarkChatReadRequest,
     MessageResponse,
     SendMessageRequest,
+    UpdateGroupChatRequest,
 )
 from app.dependencies import get_async_db, get_current_user_id
 
@@ -73,18 +77,20 @@ async def list_user_chats(
         list[ChatResponse]: The user's chats, each with a preview of the
         most recent message (null if none yet).
     """
-    chats = await chats_service.list_user_chats(db, user_id)
-    chat_ids = [chat.id for chat in chats]
+    chats_with_titles = await chats_service.list_user_chats(db, user_id)
+    chat_ids = [chat.id for chat, _ in chats_with_titles]
     last_messages = await chats_service.get_last_messages(db, chat_ids)
     unread_counts = await chats_service.get_unread_counts(db, user_id, chat_ids)
 
     return [
         ChatResponse(
             id=chat.id,
+            type=chat.type,
+            title=title,
             last_message=last_messages.get(chat.id),
             unread_count=unread_counts.get(chat.id, 0),
         )
-        for chat in chats
+        for chat, title in chats_with_titles
     ]
 
 
@@ -107,6 +113,60 @@ async def list_chat_members(
     """
     members = await chats_service.list_chat_members(db, chat_id, user_id)
     return [ChatMembersResponse.model_validate(member) for member in members]
+
+
+@router.post("/{chat_id}/members", status_code=204, tags=["Chats"])
+async def add_group_members(
+    chat_id: UUID,
+    data: AddGroupMembersRequest,
+    user_id: UUID = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_async_db),
+) -> None:
+    """Add users to a group chat.
+
+    Args:
+        chat_id: Id of the group chat.
+        data: Users to add.
+        user_id: Current user, who must be the group owner.
+        db: Async database session.
+    """
+    await chats_service.add_group_members(db, chat_id, user_id, data)
+
+
+@router.delete("/{chat_id}/members/{member_id}", status_code=204, tags=["Chats"])
+async def remove_group_member(
+    chat_id: UUID,
+    member_id: UUID,
+    user_id: UUID = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_async_db),
+) -> None:
+    """Remove a member from a group chat or leave the group.
+
+    Args:
+        chat_id: Id of the group chat.
+        member_id: Id of the member to remove.
+        user_id: Current user performing the operation.
+        db: Async database session.
+    """
+    await chats_service.remove_group_member(db, chat_id, user_id, member_id)
+
+
+@router.patch("/{chat_id}", status_code=204, tags=["Chats"])
+async def update_group_chat(
+    chat_id: UUID,
+    data: UpdateGroupChatRequest,
+    user_id: UUID = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_async_db),
+) -> None:
+    """Update a group chat.
+
+    Args:
+        chat_id: Id of the group chat.
+        data: Group fields to update.
+        user_id: Current user, who must be the group owner.
+        db: Async database session.
+    """
+    await chats_service.update_group_chat(db, chat_id, user_id, data)
 
 
 @router.post("/{chat_id}/messages", status_code=201, tags=["Messages"])
@@ -272,3 +332,23 @@ async def mark_chat_read(
         db: Async database session.
     """
     await chats_service.mark_chat_read(db, chat_id, user_id, data.last_read_message_id)
+
+
+@router.post("/group", status_code=201, tags=["Chats"])
+async def create_group_chat(
+    data: CreateGroupChatRequest,
+    user_id: UUID = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_async_db),
+) -> CreateGroupChatResponse:
+    """Create a new group chat.
+
+    Args:
+        data: Group title and initial member ids.
+        user_id: User id trusted from the X-User-Id header.
+        db: Async database session.
+
+    Returns:
+        CreateGroupChatResponse: Id of the newly created group chat.
+    """
+    chat = await chats_service.create_group_chat(db, user_id, data)
+    return CreateGroupChatResponse.model_validate(chat)
