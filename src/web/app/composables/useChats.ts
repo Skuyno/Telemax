@@ -3,6 +3,7 @@ import type {
   Chat,
   ChatMemberResponse,
   ChatResponse,
+  GroupMember,
   Message,
   MessageResponse,
   UserSearchResult,
@@ -226,6 +227,7 @@ export function useChats() {
         ...chatStore.chats,
         {
           id: chat.id,
+          type: 'direct',
           title: user.title,
           initials: user.initials,
           peerId: user.id,
@@ -268,6 +270,46 @@ export function useChats() {
     return chat.id
   }
 
+  async function loadMembers(chatId: string): Promise<GroupMember[]> {
+    const members = await api<ChatMemberResponse[]>(`/chats/${chatId}/members`)
+    const users = members.length
+      ? await api<UserResponse[]>('/users', { query: { ids: members.map((item) => item.user_id) } })
+      : []
+    const userById = new Map(users.map((user) => [user.id, user]))
+
+    chatStore.patchChat(chatId, { memberCount: members.length })
+
+    return members.map((member): GroupMember => {
+      const user = userById.get(member.user_id)
+      const title = user ? displayName(user) : 'Неизвестный пользователь'
+      return {
+        id: member.user_id,
+        username: user?.username ?? '',
+        title,
+        initials: toInitials(title),
+        avatarUrl: user?.avatar_url ?? null,
+        isOwner: member.role === 'owner',
+      }
+    })
+  }
+
+  async function addMembers(chatId: string, userIds: string[]) {
+    await api(`/chats/${chatId}/members`, {
+      method: 'POST',
+      body: { user_ids: userIds },
+    })
+  }
+
+  async function removeMember(chatId: string, memberId: string) {
+    await api(`/chats/${chatId}/members/${memberId}`, { method: 'DELETE' })
+  }
+
+  async function renameGroup(chatId: string, title: string) {
+    const next = title.trim()
+    await api(`/chats/${chatId}`, { method: 'PATCH', body: { title: next } })
+    chatStore.patchChat(chatId, { title: next, initials: toInitials(next) })
+  }
+
   async function openSavedChat() {
     const me = chatStore.meId
     if (!me) return
@@ -288,6 +330,7 @@ export function useChats() {
         ...chatStore.chats,
         {
           id: chat.id,
+          type: 'direct',
           title: SAVED_TITLE,
           initials: toInitials(SAVED_TITLE),
           peerId: me,
@@ -365,7 +408,17 @@ export function useChats() {
           chatStore.setPeerRead(event.data.chat_id, event.data.last_read_message_id)
         }
         break
+      // Группа изменилась: сигнал говорит только «перечитай», данных в нём нет.
+      case 'chat.sync_required':
+        syncChat(event.data.chat_id)
+        break
     }
+  }
+
+  /** Перечитывает список чатов и закрывает чат, из которого нас убрали. */
+  async function syncChat(chatId: string) {
+    await loadChats()
+    if (!chatStore.chats.some((chat) => chat.id === chatId)) chatStore.removeChat(chatId)
   }
 
   async function syncAttachments(chatId: string) {
@@ -414,6 +467,10 @@ export function useChats() {
     openChatWith,
     openSavedChat,
     createGroupChat,
+    loadMembers,
+    addMembers,
+    removeMember,
+    renameGroup,
     handleRealtimeEvent,
     resync,
     markRead,

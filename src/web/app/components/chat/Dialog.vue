@@ -25,6 +25,7 @@ const sendError = ref('')
 const feed = ref<HTMLElement | null>(null)
 
 const searchOpen = ref(false)
+const membersOpen = ref(false)
 const highlightedId = ref<string | null>(null)
 let highlightTimer: ReturnType<typeof setTimeout> | undefined
 
@@ -174,6 +175,7 @@ watch(
     sendError.value = ''
     editing.value = null
     searchOpen.value = false
+    membersOpen.value = false
     scrollToBottom()
   },
   { immediate: true },
@@ -204,6 +206,22 @@ watch(
         <span v-if="typing" class="dialog__status is-active">печатает…</span>
         <span v-else-if="online" class="dialog__status is-active">в сети</span>
       </span>
+
+      <button
+        v-if="chat.type === 'group'"
+        type="button"
+        class="dialog__tool"
+        :class="{ 'is-active': membersOpen }"
+        aria-label="Участники группы"
+        @click="membersOpen = true"
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+          <circle cx="9" cy="7" r="4" />
+          <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+          <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+        </svg>
+      </button>
 
       <button
         type="button"
@@ -267,6 +285,8 @@ watch(
       @cancel-edit="cancelEdit"
       @typing="emit('typing')"
     />
+
+    <ChatGroupMembers v-if="membersOpen" :chat="chat" @close="membersOpen = false" />
 
     <ChatDeleteConfirm
       :open="!!pendingRemoval"
