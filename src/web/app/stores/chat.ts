@@ -105,6 +105,18 @@ export const useChatStore = defineStore('chat', {
       if (!current || messageId > current) this.peerReadMessageIdByChatId[chatId] = messageId
     },
 
+    patchChat(chatId: string, patch: Partial<Chat>) {
+      const chat = this.chats.find((item) => item.id === chatId)
+      if (chat) Object.assign(chat, patch)
+    },
+
+    removeChat(chatId: string) {
+      this.chats = this.chats.filter((item) => item.id !== chatId)
+      delete this.messagesByChatId[chatId]
+      delete this.hasMoreByChatId[chatId]
+      if (this.activeChatId === chatId) this.activeChatId = null
+    },
+
     clearUnread(chatId: string) {
       const chat = this.chats.find((item) => item.id === chatId)
       if (chat) chat.unreadCount = 0
