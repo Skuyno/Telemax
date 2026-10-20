@@ -1,0 +1,16 @@
+vars:
+  PORT:
+    source: fixed
+    value: "4333"
+  JWT_SECRET:
+    source: secret
+    ref: jwt_secret
+  NATS_URL:
+    source: fixed
+    value: "nats://nats:4222"
+  REDIS_URL:
+    source: fixed
+    value: "redis:6379"
+  COMMUNICATION_URL:
+    source: fixed
+    value: "http://communication:8000"

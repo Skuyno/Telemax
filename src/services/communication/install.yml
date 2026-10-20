@@ -1,0 +1,22 @@
+vars:
+  POSTGRES_USER:
+    source: fixed
+    value: telemax
+  POSTGRES_PASSWORD:
+    source: secret
+    ref: postgres_password
+  POSTGRES_DB:
+    source: fixed
+    value: telemax_communication
+  IDENTITY_URL:
+    source: fixed
+    value: "http://identity:8000"
+  FILE_ORCHESTRATOR_URL:
+    source: fixed
+    value: "http://file-orchestrator:8000"
+  NATS_PORT:
+    source: fixed
+    value: "4222"
+  SQL_ECHO:
+    source: fixed
+    value: "false"
