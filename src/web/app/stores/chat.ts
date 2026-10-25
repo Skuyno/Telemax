@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import type { Chat, Message, UserSearchResult } from '~/types/chat'
+import type { Chat, ChatProfile, Message, UserSearchResult } from '~/types/chat'
 
 const TYPING_TTL_MS = 4000
 
@@ -23,7 +23,9 @@ export const useChatStore = defineStore('chat', {
     /** Растёт при «Новый чат» — сайдбар по нему ставит фокус в поиск. */
     searchFocusTick: 0,
     onlineByUserId: {} as Record<string, boolean>,
+    profileByUserId: {} as Record<string, ChatProfile>,
     typingUntilByChatId: {} as Record<string, number>,
+    typingUserIdByChatId: {} as Record<string, string>,
     peerReadMessageIdByChatId: {} as Record<string, string>,
     now: Date.now(),
   }),
@@ -91,13 +93,19 @@ export const useChatStore = defineStore('chat', {
       this.onlineByUserId[userId] = online
     },
 
-    markTyping(chatId: string) {
+    markTyping(chatId: string, userId?: string) {
       this.typingUntilByChatId[chatId] = Date.now() + TYPING_TTL_MS
+      if (userId) this.typingUserIdByChatId[chatId] = userId
       this.now = Date.now()
     },
 
     stopTyping(chatId: string) {
       delete this.typingUntilByChatId[chatId]
+      delete this.typingUserIdByChatId[chatId]
+    },
+
+    setProfiles(profiles: ChatProfile[]) {
+      for (const profile of profiles) this.profileByUserId[profile.id] = profile
     },
 
     setPeerRead(chatId: string, messageId: string) {

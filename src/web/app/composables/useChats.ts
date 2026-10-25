@@ -119,6 +119,7 @@ export function useChats() {
       query: { limit: PAGE_SIZE },
     })
     chatStore.setMessages(chatId, page.map(toMessage).reverse(), page.length === PAGE_SIZE)
+    ensureProfiles(page.map((raw) => raw.sender_id))
   }
 
   async function loadOlderMessages(chatId: string) {
@@ -131,6 +132,7 @@ export function useChats() {
         query: { limit: PAGE_SIZE, before_msg_id: oldest.id },
       })
       chatStore.prependMessages(chatId, page.map(toMessage).reverse(), page.length === PAGE_SIZE)
+      ensureProfiles(page.map((raw) => raw.sender_id))
     } finally {
       loadingOlder.delete(chatId)
     }
@@ -270,6 +272,21 @@ export function useChats() {
     return chat.id
   }
 
+  async function ensureProfiles(userIds: string[]) {
+    const unknown = [...new Set(userIds)].filter(
+      (id) => id && id !== chatStore.meId && !chatStore.profileByUserId[id],
+    )
+    if (!unknown.length) return
+
+    const users = await api<UserResponse[]>('/users', { query: { ids: unknown } }).catch(() => [])
+    chatStore.setProfiles(
+      users.map((user) => {
+        const title = displayName(user)
+        return { id: user.id, title, initials: toInitials(title), avatarUrl: user.avatar_url }
+      }),
+    )
+  }
+
   async function loadMembers(chatId: string): Promise<GroupMember[]> {
     const members = await api<ChatMemberResponse[]>(`/chats/${chatId}/members`)
     const users = members.length
@@ -370,6 +387,7 @@ export function useChats() {
         if (data.chat_id === chatStore.activeChatId && data.sender_id !== chatStore.meId) {
           syncAttachments(data.chat_id)
         }
+        ensureProfiles([data.sender_id])
 
         // Написал человек, с которым чата ещё нет в списке, — подтягиваем список заново.
         if (!isKnownChat) loadChats()
@@ -401,7 +419,10 @@ export function useChats() {
         chatStore.setOnline(event.data.user_id, event.data.status === 'online')
         break
       case 'typing':
-        if (event.data.user_id !== chatStore.meId) chatStore.markTyping(event.data.chat_id)
+        if (event.data.user_id !== chatStore.meId) {
+          chatStore.markTyping(event.data.chat_id, event.data.user_id)
+          ensureProfiles([event.data.user_id])
+        }
         break
       case 'message.read':
         if (event.data.user_id !== chatStore.meId) {
@@ -468,6 +489,7 @@ export function useChats() {
     openSavedChat,
     createGroupChat,
     loadMembers,
+    ensureProfiles,
     addMembers,
     removeMember,
     renameGroup,

@@ -8,6 +8,7 @@ defineProps<{
   initials: string
   avatarUrl?: string | null
   read?: boolean
+  authorName?: string
   hideStatus?: boolean
   highlighted?: boolean
 }>()
@@ -26,6 +27,8 @@ defineEmits<{ edit: []; remove: [] }>()
     </span>
 
     <div class="bubble" :class="{ 'is-own': own, 'is-deleted': message.isDeleted }">
+      <p v-if="authorName && !own" class="bubble__author">{{ authorName }}</p>
+
       <p v-if="message.isDeleted" class="bubble__body is-deleted">Сообщение удалено</p>
 
       <template v-else>
@@ -165,6 +168,16 @@ defineEmits<{ edit: []; remove: [] }>()
   flex-direction: column;
   gap: 6px;
   width: 100%;
+}
+
+.bubble__author {
+  width: 100%;
+  margin: -2px 0 -5px;
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 12px;
+  line-height: 1.2;
+  color: var(--color-accent);
 }
 
 .bubble__body {
