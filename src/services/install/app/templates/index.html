@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Установка Телемакс</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Unbounded:wght@700&family=Space+Grotesk:wght@600&family=IBM+Plex+Mono:wght@400;500&display=swap"
+    />
+    <style>
+      /*
+        Цвета и шрифты продублированы из src/web/app/assets/styles/{colors,fonts}.css —
+        install_service отдаёт статичную страницу без сборки Nuxt, общий CSS
+        оттуда подключить нельзя. При смене палитры/шрифтов в web — обновить и тут.
+      */
+      :root {
+        --color-ground: #0d1642;
+        --color-lift: #16225a;
+        --color-ink: #0b1236;
+        --color-accent: #ffcc2e;
+        --color-accent-hover: #ffe07a;
+        --color-accent-pressed: #e0a400;
+        --color-focus: #4fd8ff;
+        --color-success: #9be14b;
+        --color-error: #ff6b5e;
+        --color-text: #e6ecff;
+        --color-text-muted: #a9b8ea;
+        --color-text-dim: #7f97e6;
+        --color-line: #3d4f9c;
+        --font-display: 'Unbounded', system-ui, sans-serif;
+        --font-heading: 'Space Grotesk', system-ui, sans-serif;
+        --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+        --radius: 0px;
+        --shadow-hard: 6px 6px 0 var(--color-ink);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 48px 24px;
+        background: var(--color-ground);
+        color: var(--color-text);
+        font-family: var(--font-heading);
+      }
+
+      .card {
+        width: 100%;
+        max-width: 420px;
+        background: var(--color-lift);
+        border: 1px solid rgba(61, 79, 156, 0.6);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow-hard);
+        padding: 32px;
+      }
+
+      .brand {
+        display: inline-block;
+        margin-bottom: 32px;
+        font-family: var(--font-display);
+        font-weight: 700;
+        font-size: 24px;
+        text-transform: uppercase;
+        letter-spacing: 0.02em;
+        color: var(--color-accent);
+      }
+
+      .title {
+        margin: 0 0 20px;
+        font-family: var(--font-heading);
+        font-weight: 600;
+        font-size: 18px;
+        color: var(--color-text);
+      }
+
+      .version {
+        margin: 0;
+        font-family: var(--font-mono);
+        font-size: 12px;
+        color: var(--color-text-muted);
+      }
+
+      .field {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        margin-bottom: 16px;
+      }
+
+      .field__label {
+        font-family: var(--font-mono);
+        font-weight: 500;
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        color: var(--color-text-dim);
+      }
+
+      .field__input {
+        padding: 10px 12px;
+        background: var(--color-ground);
+        border: 1px solid rgba(61, 79, 156, 0.6);
+        border-radius: var(--radius);
+        font-family: var(--font-mono);
+        font-size: 13px;
+        color: var(--color-text);
+      }
+
+      .field__input:focus {
+        outline: none;
+        border-color: var(--color-focus);
+      }
+
+      .field--checkbox {
+        flex-direction: row;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .field--checkbox .field__input {
+        flex: none;
+        width: auto;
+        padding: 0;
+      }
+
+      .field--checkbox .field__label {
+        text-transform: none;
+        letter-spacing: normal;
+        font-size: 13px;
+        color: var(--color-text);
+      }
+
+      .hint {
+        margin: -10px 0 16px;
+        font-family: var(--font-mono);
+        font-size: 11px;
+        color: var(--color-text-dim);
+      }
+
+      .submit {
+        width: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        margin-top: 4px;
+        padding: 12px;
+        background: var(--color-accent);
+        color: var(--color-ink);
+        border: none;
+        border-radius: var(--radius);
+        font-family: var(--font-display);
+        font-weight: 700;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.02em;
+        cursor: pointer;
+      }
+
+      .submit:hover:not(:disabled) {
+        background: var(--color-accent-hover);
+      }
+
+      .submit:active:not(:disabled) {
+        background: var(--color-accent-pressed);
+      }
+
+      .submit:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
+
+      .error {
+        margin: 16px 0 0;
+        font-family: var(--font-mono);
+        font-size: 11px;
+        color: var(--color-error);
+      }
+
+      .status {
+        margin: 0;
+        font-family: var(--font-mono);
+        font-size: 12px;
+        color: var(--color-text-muted);
+      }
+
+      .status.is-done {
+        color: var(--color-success);
+      }
+
+      .hidden {
+        display: none !important;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <span class="brand">Телемакс</span>
+
+      {% if installed %}
+      <h2 class="title">Мессенджер установлен</h2>
+      <p class="version">Версия {{ version }}</p>
+      {% else %}
+      <h2 class="title">Установка</h2>
+
+      <form id="install-form">
+        {% for f in fields %} {% if f.input_type == 'checkbox' %}
+        <label class="field field--checkbox">
+          <input
+            type="checkbox"
+            name="{{ f.field }}"
+            class="field__input"
+            {%
+            if
+            f.default=="true"
+            %}checked{%
+            endif
+            %}
+          />
+          <span class="field__label">{{ f.label }}</span>
+        </label>
+        {% else %}
+        <label class="field">
+          <span class="field__label">{{ f.label }}</span>
+          <input
+            type="{{ f.input_type }}"
+            name="{{ f.field }}"
+            class="field__input"
+            {%
+            if
+            f.required
+            %}required{%
+            endif
+            %}
+          />
+        </label>
+        {% endif %} {% endfor %}
+
+        <label class="field field--checkbox">
+          <input type="checkbox" id="has-domain" class="field__input" />
+          <span class="field__label">У меня есть домен, указывающий на этот сервер</span>
+        </label>
+
+        <div id="domain-fields" class="hidden">
+          <label class="field">
+            <span class="field__label">Домен</span>
+            <input type="text" id="domain" class="field__input" placeholder="example.com" />
+          </label>
+          <p class="hint">DNS A-запись должна уже указывать на этот сервер.</p>
+          <label class="field">
+            <span class="field__label">Email для Let's Encrypt</span>
+            <input
+              type="email"
+              id="email"
+              class="field__input"
+              placeholder="you@example.com"
+            />
+          </label>
+        </div>
+
+        <button type="submit" class="submit" id="submit-btn">Установить</button>
+      </form>
+
+      <p id="error" class="error hidden"></p>
+      <p id="status" class="status hidden"></p>
+      {% endif %}
+    </div>
+
+    {% if not installed %}
+    <script>
+      const hasDomain = document.getElementById('has-domain')
+      const domainFields = document.getElementById('domain-fields')
+      hasDomain.addEventListener('change', () => {
+        domainFields.classList.toggle('hidden', !hasDomain.checked)
+      })
+
+      const form = document.getElementById('install-form')
+      const submitBtn = document.getElementById('submit-btn')
+      const errorEl = document.getElementById('error')
+      const statusEl = document.getElementById('status')
+      const fieldNames = [{% for f in fields %}['{{ f.field }}', '{{ f.input_type }}'],{% endfor %}]
+
+      form.addEventListener('submit', async (event) => {
+        event.preventDefault()
+        errorEl.classList.add('hidden')
+        submitBtn.disabled = true
+
+        const formData = new FormData(form)
+        const formValues = {}
+        for (const [name, inputType] of fieldNames) {
+          formValues[name] = inputType === 'checkbox' ? String(formData.has(name)) : (formData.get(name) || '')
+        }
+
+        const payload = {
+          form_values: formValues,
+          domain: hasDomain.checked ? document.getElementById('domain').value : null,
+          email: hasDomain.checked ? document.getElementById('email').value : null,
+        }
+
+        let response
+        try {
+          response = await fetch('/install', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          })
+        } catch (err) {
+          errorEl.textContent = 'Не удалось связаться с install_service'
+          errorEl.classList.remove('hidden')
+          submitBtn.disabled = false
+          return
+        }
+
+        if (!response.ok) {
+          const body = await response.json().catch(() => ({}))
+          errorEl.textContent = body.detail || 'Не удалось запустить установку'
+          errorEl.classList.remove('hidden')
+          submitBtn.disabled = false
+          return
+        }
+
+        form.classList.add('hidden')
+        statusEl.classList.remove('hidden')
+        poll()
+      })
+
+      async function poll() {
+        const response = await fetch('/status')
+        const data = await response.json()
+
+        if (data.error) {
+          statusEl.classList.add('hidden')
+          errorEl.textContent = data.error
+          errorEl.classList.remove('hidden')
+          form.classList.remove('hidden')
+          submitBtn.disabled = false
+          return
+        }
+
+        statusEl.textContent = data.message || data.step
+
+        if (data.step === 'done') {
+          statusEl.textContent = 'Готово! Обновляем страницу…'
+          statusEl.classList.add('is-done')
+          setTimeout(() => window.location.reload(), 1500)
+          return
+        }
+
+        setTimeout(poll, 1500)
+      }
+    </script>
+    {% endif %}
+  </body>
+</html>
