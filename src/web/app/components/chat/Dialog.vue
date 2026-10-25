@@ -46,6 +46,31 @@ const myInitials = computed(() => {
   return name ? toInitials(name) : ''
 })
 
+const isGroup = computed(() => props.chat.type === 'group')
+
+function senderName(senderId: string) {
+  return chatStore.profileByUserId[senderId]?.title ?? 'Неизвестный пользователь'
+}
+
+function senderInitials(senderId: string) {
+  if (senderId === props.meId) return myInitials.value
+  if (isGroup.value) return chatStore.profileByUserId[senderId]?.initials ?? ''
+  return props.chat.initials
+}
+
+function senderAvatar(senderId: string) {
+  if (senderId === props.meId) return auth.user?.avatarUrl ?? null
+  if (isGroup.value) return chatStore.profileByUserId[senderId]?.avatarUrl ?? null
+  return props.chat.avatarUrl
+}
+
+const typingLabel = computed(() => {
+  if (!isGroup.value) return 'печатает'
+  const userId = chatStore.typingUserIdByChatId[props.chat.id]
+  const name = userId ? chatStore.profileByUserId[userId]?.title : ''
+  return name ? `${name} печатает` : 'печатает'
+})
+
 /** Лента, разбитая на группы по дням — под разделители дат. */
 const groups = computed(() => {
   const result: { key: string; date: string; items: Message[] }[] = []
@@ -203,7 +228,7 @@ watch(
         <span v-else-if="chat.type === 'group'" class="dialog__status">
           {{ memberCountLabel }}
         </span>
-        <span v-if="typing" class="dialog__status is-active">печатает…</span>
+        <span v-if="typing" class="dialog__status is-active">{{ typingLabel }}…</span>
         <span v-else-if="online" class="dialog__status is-active">в сети</span>
       </span>
 
@@ -250,8 +275,9 @@ watch(
           :key="message.id"
           :message="message"
           :own="message.senderId === meId"
-          :initials="message.senderId === meId ? myInitials : chat.initials"
-          :avatar-url="message.senderId === meId ? auth.user?.avatarUrl : chat.avatarUrl"
+          :initials="senderInitials(message.senderId)"
+          :avatar-url="senderAvatar(message.senderId)"
+          :author-name="isGroup ? senderName(message.senderId) : undefined"
           :read="chatStore.isMessageRead(message)"
           :hide-status="chat.isSaved"
           :highlighted="highlightedId === message.id"
@@ -270,7 +296,7 @@ watch(
     </div>
 
     <p v-if="typing" class="dialog__typing">
-      печатает
+      {{ typingLabel }}
       <span class="dialog__dots" aria-hidden="true"><i /><i /><i /></span>
     </p>
 

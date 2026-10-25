@@ -54,6 +54,13 @@ export interface UserSearchResult {
   avatarUrl: string | null
 }
 
+export interface ChatProfile {
+  id: string
+  title: string
+  initials: string
+  avatarUrl: string | null
+}
+
 /** Участник группы вместе с данными профиля. */
 export interface GroupMember {
   id: string
