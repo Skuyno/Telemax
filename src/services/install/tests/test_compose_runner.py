@@ -55,6 +55,19 @@ def test_bring_up_stack_includes_main_override_when_requested(tmp_path: Path) ->
     assert str(tmp_path / "docker-compose-main.yml") in args
 
 
+def test_bring_up_stack_scopes_to_given_services(tmp_path: Path) -> None:
+    """Passing services=["nginx"] rebuilds only nginx, not the whole stack.
+
+    Used after swapping nginx.conf mid-install — no reason to rebuild every
+    other, unrelated service just to pick up a config file change.
+    """
+    with patch(_RUN, return_value=_completed()) as run:
+        bring_up_stack(tmp_path, services=["nginx"])
+
+    args = run.call_args.args[0]
+    assert args[-1] == "nginx"
+
+
 def test_bring_up_stack_raises_on_nonzero_exit(tmp_path: Path) -> None:
     """A failed `docker compose up` surfaces its stderr, not a generic failure."""
     failed = _completed(returncode=1, stderr="build failed: boom")

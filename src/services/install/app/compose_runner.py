@@ -37,12 +37,19 @@ def _compose_files(deploy_dir: Path, use_main_override: bool) -> list[str]:
     return args
 
 
-def bring_up_stack(deploy_dir: Path, use_main_override: bool = False) -> None:
-    """Build and start every service defined in the compose files.
+def bring_up_stack(
+    deploy_dir: Path,
+    use_main_override: bool = False,
+    services: list[str] | None = None,
+) -> None:
+    """Build and start services defined in the compose files.
 
     Args:
         deploy_dir: the `deploy/` directory holding the compose files.
         use_main_override: whether to also apply docker-compose-main.yml.
+        services: service names to limit the build/up to (e.g. `["nginx"]`
+            to rebuild just nginx after swapping its config — see
+            app/nginx_setup.py). None rebuilds and starts everything.
 
     Raises:
         ComposeError: if the `docker compose up` invocation fails.
@@ -54,6 +61,7 @@ def bring_up_stack(deploy_dir: Path, use_main_override: bool = False) -> None:
         "up",
         "-d",
         "--build",
+        *(services or []),
     ]
     result = subprocess.run(command, cwd=deploy_dir, capture_output=True, text=True)
     if result.returncode != 0:
