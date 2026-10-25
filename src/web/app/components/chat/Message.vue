@@ -171,10 +171,12 @@ defineEmits<{ edit: []; remove: [] }>()
 }
 
 .bubble__author {
-  margin: 0 0 4px;
+  width: 100%;
+  margin: -2px 0 -5px;
   font-family: var(--font-heading);
   font-weight: 600;
   font-size: 12px;
+  line-height: 1.2;
   color: var(--color-accent);
 }
 
