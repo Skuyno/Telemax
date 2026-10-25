@@ -14,13 +14,12 @@ from app.discovery import discover_manifests
 from app.env_writer import is_fully_configured
 from app.forms import collect_form_fields
 from app.health.router import router as health_router
+from app.repo_root import resolve_repo_root
 
 # Repo root is bind-mounted into this container at the same absolute path it
 # has on the host (see deploy/docker-compose.install.yml) — the env var is
-# how the container is told where that mount landed. The computed fallback
-# (.../src/services/install/app/main.py -> 4 parents up) only matters for
-# running this service directly on a dev machine outside Docker.
-REPO_ROOT = Path(os.environ.get("REPO_ROOT", str(Path(__file__).resolve().parents[4])))
+# how the container is told where that mount landed.
+REPO_ROOT = resolve_repo_root(os.environ.get("REPO_ROOT"), Path(__file__))
 
 app = FastAPI()
 app.include_router(health_router)
