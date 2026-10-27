@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import get_async_db, get_current_user_id
 from app.files import service as files_service
-from app.files.schemas import FileResponse
+from app.files.schemas import FileLinkResponse, FileResponse
 
 router = APIRouter(prefix="/files")
 
@@ -56,24 +56,72 @@ async def upload_file(
 @router.get("/{file_id}", tags=["Files"])
 async def download_file(
     file_id: UUID,
-    user_id: UUID = Depends(get_current_user_id),
+    range_header: str | None = Header(default=None, alias="Range"),
+    x_user_id: UUID | None = Header(default=None),
+    sig: str | None = None,
+    exp: int | None = None,
     db: AsyncSession = Depends(get_async_db),
 ) -> StreamingResponse:
-    """Stream a file's bytes back to an authorized caller.
+    """Stream a file's bytes — the whole file or a single byte range.
+
+    Authorization is via the usual X-User-Id (chat membership check), or,
+    for places a browser can't attach an Authorization header (a <video>/
+    <audio> src), a short-lived signed link's sig+exp query params instead
+    — see create_file_link below.
 
     Args:
         file_id: Id of the file to download.
+        range_header: The client's Range header, if any (e.g. "bytes=0-1023").
+        x_user_id: User id trusted from the X-User-Id header, if present.
+        sig: Signed-link signature, if accessing via a signed link.
+        exp: Signed-link expiry (unix timestamp), if accessing via a signed link.
+        db: Async database session.
+
+    Returns:
+        StreamingResponse: 200 (whole file), 206 (byte range), or 416
+        (range not satisfiable), with Accept-Ranges/Content-Length/
+        Content-Range set accordingly.
+    """
+    file, content = await files_service.download_file(
+        db, file_id, user_id=x_user_id, sig=sig, exp=exp, range_header=range_header
+    )
+    headers = {
+        "Accept-Ranges": "bytes",
+        "Content-Disposition": f'attachment; filename="{file.original_filename}"',
+    }
+    if content.content_length is not None:
+        headers["Content-Length"] = str(content.content_length)
+    if content.content_range is not None:
+        headers["Content-Range"] = content.content_range
+    return StreamingResponse(
+        content.body,
+        status_code=content.status_code,
+        media_type=file.content_type,
+        headers=headers,
+    )
+
+
+@router.post("/{file_id}/link", tags=["Files"])
+async def create_file_link(
+    file_id: UUID,
+    user_id: UUID = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_async_db),
+) -> FileLinkResponse:
+    """Issue a short-lived signed link, usable with no Authorization header.
+
+    Meant for <video>/<audio> src attributes, which can't send a bearer
+    token — requesting this link requires the same authorization as a
+    normal download (chat membership); the signature alone authorizes the
+    actual download afterward.
+
+    Args:
+        file_id: Id of the file to issue a link for.
         user_id: User id trusted from the X-User-Id header.
         db: Async database session.
 
     Returns:
-        StreamingResponse: The file's bytes, streamed from storage.
+        FileLinkResponse: A relative download URL (sig+exp query params)
+        and how many seconds it's valid for.
     """
-    file, body = await files_service.download_file(db, file_id, user_id)
-    return StreamingResponse(
-        body,
-        media_type=file.content_type,
-        headers={
-            "Content-Disposition": f'attachment; filename="{file.original_filename}"'
-        },
-    )
+    url, expires_in = await files_service.create_file_link(db, file_id, user_id)
+    return FileLinkResponse(url=url, expires_in=expires_in)

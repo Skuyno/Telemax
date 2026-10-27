@@ -21,6 +21,13 @@ class FileResponse(BaseModel):
     created_at: datetime
 
 
+class FileLinkResponse(BaseModel):
+    """A short-lived signed link, usable to download a file with no auth header."""
+
+    url: str
+    expires_in: int
+
+
 class ValidateFilesRequest(BaseModel):
     """Request body for the internal attachment-validation endpoint."""
 
