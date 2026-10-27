@@ -2,7 +2,7 @@
 import type { Message } from '~/types/chat'
 import { formatMessageTime } from '~/utils/chatTime'
 
-defineProps<{
+const props = defineProps<{
   message: Message
   own: boolean
   initials: string
@@ -14,6 +14,14 @@ defineProps<{
 }>()
 
 defineEmits<{ edit: []; remove: [] }>()
+
+const hasMedia = computed(
+  () => !props.message.isDeleted && props.message.attachmentIds.length > 0,
+)
+
+const isMediaOnly = computed(() => hasMedia.value && !props.message.body)
+
+const hasCaption = computed(() => hasMedia.value && Boolean(props.message.body))
 </script>
 
 <template>
@@ -26,7 +34,16 @@ defineEmits<{ edit: []; remove: [] }>()
       <UserAvatar :url="avatarUrl" :initials="initials" />
     </span>
 
-    <div class="bubble" :class="{ 'is-own': own, 'is-deleted': message.isDeleted }">
+    <div
+      class="bubble"
+      :class="{
+        'is-own': own,
+        'is-deleted': message.isDeleted,
+        'has-media': hasMedia,
+        'is-media': isMediaOnly,
+        'has-caption': hasCaption,
+      }"
+    >
       <p v-if="authorName && !own" class="bubble__author">{{ authorName }}</p>
 
       <p v-if="message.isDeleted" class="bubble__body is-deleted">Сообщение удалено</p>
@@ -150,6 +167,51 @@ defineEmits<{ edit: []; remove: [] }>()
   background: var(--color-lift);
   border: 1px solid var(--chat-line);
   border-radius: var(--chat-radius-lg);
+}
+
+.bubble.has-media {
+  position: relative;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+  width: min-content;
+  padding: 0;
+  overflow: hidden;
+}
+
+.bubble.has-media .bubble__meta {
+  margin-left: auto;
+}
+
+.bubble.has-media .bubble__author {
+  padding: 8px 12px 4px;
+}
+
+.bubble.has-caption .bubble__body {
+  padding: 7px 68px 8px 12px;
+}
+
+.bubble.has-caption .bubble__meta {
+  position: absolute;
+  right: 12px;
+  bottom: 8px;
+  padding: 0;
+}
+
+.bubble.is-media .bubble__meta {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  padding: 3px 8px;
+  background: rgba(7, 11, 28, 0.78);
+  border-radius: 999px;
+  color: var(--color-text);
+  text-shadow: 0 1px 2px rgba(7, 11, 28, 0.6);
+}
+
+.bubble.is-media .bubble__time,
+.bubble.is-media .bubble__check {
+  color: var(--color-text);
 }
 
 .bubble.is-own {
