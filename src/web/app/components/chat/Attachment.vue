@@ -3,7 +3,7 @@ import type { Attachment } from '~/types/chat'
 
 const props = defineProps<{ fileId: string; own: boolean }>()
 
-const { getAttachment } = useFiles()
+const { getAttachmentInfo, refreshStreamUrl } = useFiles()
 
 const attachment = ref<Attachment | null>(null)
 const failed = ref(false)
@@ -13,7 +13,7 @@ watch(
   async (id) => {
     attachment.value = null
     failed.value = false
-    const loaded = await getAttachment(id)
+    const loaded = await getAttachmentInfo(id)
     if (props.fileId !== id) return
     attachment.value = loaded
     failed.value = !loaded
@@ -21,7 +21,27 @@ watch(
   { immediate: true },
 )
 
+const duration = ref('')
+
+function onMetadata(event: Event) {
+  const seconds = (event.target as HTMLVideoElement).duration
+  if (!Number.isFinite(seconds)) return
+
+  const total = Math.round(seconds)
+  const minutes = Math.floor(total / 60)
+  duration.value = `${minutes}:${String(total % 60).padStart(2, '0')}`
+}
+
+async function onSourceError() {
+  const current = attachment.value
+  if (!current || current.url.startsWith('blob:')) return
+
+  const url = await refreshStreamUrl(props.fileId).catch(() => '')
+  if (url && attachment.value) attachment.value = { ...attachment.value, url }
+}
+
 const isImage = computed(() => attachment.value?.type.startsWith('image/') ?? false)
+const isVideo = computed(() => attachment.value?.type.startsWith('video/') ?? false)
 
 const viewerOpen = ref(false)
 
@@ -51,7 +71,36 @@ function formatSize(bytes: number): string {
     aria-label="Открыть картинку"
     @click="viewerOpen = true"
   >
-    <img class="media__img" :src="attachment.url" :alt="attachment.name" />
+    <img
+      class="media__img"
+      :src="attachment.url"
+      :alt="attachment.name"
+      @error="onSourceError"
+    />
+  </button>
+
+  <button
+    v-else-if="attachment && isVideo"
+    type="button"
+    class="media media--video"
+    aria-label="Смотреть видео"
+    @click="viewerOpen = true"
+  >
+    <video
+      class="media__video"
+      :src="attachment.url"
+      preload="metadata"
+      muted
+      playsinline
+      @loadedmetadata="onMetadata"
+      @error="onSourceError"
+    />
+    <span class="media__play" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="currentColor">
+        <path d="M8 5.5v13l11-6.5z" />
+      </svg>
+    </span>
+    <span v-if="duration" class="media__badge">{{ duration }}</span>
   </button>
 
   <a
@@ -85,10 +134,19 @@ function formatSize(bytes: number): string {
         v-if="viewerOpen && attachment"
         class="viewer"
         role="dialog"
-        aria-label="Просмотр картинки"
+        :aria-label="isVideo ? 'Просмотр видео' : 'Просмотр картинки'"
         @click.self="viewerOpen = false"
       >
-        <img class="viewer__img" :src="attachment.url" :alt="attachment.name" />
+        <video
+          v-if="isVideo"
+          class="viewer__video"
+          :src="attachment.url"
+          controls
+          autoplay
+          playsinline
+          @error="onSourceError"
+        />
+        <img v-else class="viewer__img" :src="attachment.url" :alt="attachment.name" />
         <div class="viewer__bar">
           <a class="viewer__btn" :href="attachment.url" :download="attachment.name">Скачать</a>
           <button
@@ -111,7 +169,7 @@ function formatSize(bytes: number): string {
 <style scoped>
 .media {
   display: block;
-  max-width: 280px;
+  max-width: 300px;
   padding: 0;
   overflow: hidden;
   background: none;
@@ -132,13 +190,19 @@ function formatSize(bytes: number): string {
   cursor: zoom-out;
 }
 
-.viewer__img {
+.viewer__img,
+.viewer__video {
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
   border-radius: 10px;
   box-shadow: var(--shadow-hard);
   cursor: default;
+}
+
+.viewer__video {
+  width: min(1080px, 100%);
+  background: var(--color-ink);
 }
 
 .viewer__bar {
@@ -191,6 +255,57 @@ function formatSize(bytes: number): string {
   width: 100%;
   max-height: 320px;
   object-fit: cover;
+}
+
+.media--video {
+  position: relative;
+  width: 300px;
+  background: var(--color-ink);
+}
+
+.media__video {
+  display: block;
+  width: 100%;
+  height: 180px;
+  object-fit: cover;
+  pointer-events: none;
+}
+
+.media__play {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: grid;
+  place-items: center;
+  width: 54px;
+  height: 54px;
+  background: rgba(255, 204, 46, 0.92);
+  border-radius: 50%;
+  box-shadow: 0 0 24px rgba(7, 11, 28, 0.55);
+  color: var(--color-ink);
+  transform: translate(-50%, -50%);
+  transition: transform 0.15s ease;
+}
+
+.media--video:hover .media__play {
+  transform: translate(-50%, -50%) scale(1.08);
+}
+
+.media__play svg {
+  width: 26px;
+  height: 26px;
+}
+
+.media__badge {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  padding: 3px 8px;
+  background: rgba(7, 11, 28, 0.72);
+  border-radius: 999px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-text);
 }
 
 .file {
