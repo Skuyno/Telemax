@@ -16,13 +16,20 @@ PUBLIC_PATHS = {"auth/register", "auth/login", "auth/refresh"}
 # replaced by our own X-User-Id, not passed through to upstream services.
 # x-filename carries the original filename for raw (non-multipart) file
 # uploads to file-orchestrator, which has no other way to receive it.
-FORWARDED_REQUEST_HEADERS = ("content-type", "content-length", "x-filename")
+# range lets a <video>/<audio> request a byte range of a file download.
+FORWARDED_REQUEST_HEADERS = ("content-type", "content-length", "x-filename", "range")
 
-# Hop-by-hop headers plus ones StreamingResponse computes itself (it sends
-# the body chunked, so upstream's original content-length/content-encoding
-# would be wrong) or that don't make sense to replay a second time. Every
-# other upstream response header (notably Content-Disposition, needed for
-# file-orchestrator downloads to carry the original filename) passes through.
+# Hop-by-hop headers plus ones that don't make sense to replay a second
+# time. content-length is NOT dropped: upstream_body() relays upstream's
+# bytes unchanged (no re-chunking, no re-encoding), so whatever
+# content-length it declared is still exactly right — and an exact
+# Content-Length (not chunked transfer-encoding) is what lets a <video>/
+# <audio> element seek a partial download at all. This assumes no upstream
+# service enables response compression (content-encoding stays dropped
+# below and is never forwarded); if that ever changes, content-length
+# would need to be recomputed instead of just passed through, since httpx
+# transparently decodes a compressed body while leaving the original
+# (compressed-size) header untouched.
 DROPPED_RESPONSE_HEADERS = {
     "connection",
     "keep-alive",
@@ -32,7 +39,6 @@ DROPPED_RESPONSE_HEADERS = {
     "trailer",
     "transfer-encoding",
     "upgrade",
-    "content-length",
     "content-encoding",
 }
 
@@ -63,6 +69,32 @@ def resolve_target(path: str) -> str:
     if segment == "files":
         return settings.file_orchestrator_url
     raise HTTPException(status_code=404)
+
+
+def _is_signed_file_download(method: str, path: str, query_params) -> bool:
+    """Whether this is a GET for a file via a pre-authorized signed link.
+
+    A signed link (issued by file-orchestrator's own POST .../link) is the
+    one case a browser can request with no Authorization header at all
+    (e.g. a <video>/<audio> src) — the signature itself, verified entirely
+    inside file-orchestrator, is the credential, so the gateway must not
+    demand a bearer token for exactly this shape of request.
+
+    Args:
+        method: HTTP method of the incoming request.
+        path: URL path without the leading slash.
+        query_params: the incoming request's query parameters.
+
+    Returns:
+        bool: True if this request should bypass the usual bearer-token
+            requirement.
+    """
+    if method != "GET":
+        return False
+    segments = path.split("/")
+    if len(segments) != 2 or segments[0] != "files":
+        return False
+    return "sig" in query_params and "exp" in query_params
 
 
 @router.api_route(
@@ -99,7 +131,9 @@ async def proxy(
     target = resolve_target(path)
 
     headers = {}
-    if path not in PUBLIC_PATHS:
+    if path not in PUBLIC_PATHS and not _is_signed_file_download(
+        request.method, path, request.query_params
+    ):
         user_id = get_authorization_token(credentials)
         headers["X-User-Id"] = str(user_id)
     for header_name in FORWARDED_REQUEST_HEADERS:

@@ -26,3 +26,6 @@ vars:
   SQL_ECHO:
     source: fixed
     value: "false"
+  LINK_SIGNING_SECRET:
+    source: secret
+    ref: file_link_signing_secret
