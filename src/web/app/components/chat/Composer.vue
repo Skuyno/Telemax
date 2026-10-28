@@ -125,6 +125,17 @@ function onFilesChosen(event: Event) {
   }
 }
 
+function isWaiting(upload: PendingUpload): boolean {
+  return !upload.error && !upload.fileId && upload.progress === 0
+}
+
+function statusLabel(upload: PendingUpload): string {
+  if (upload.error) return upload.error
+  if (upload.fileId) return 'готово'
+  if (upload.progress === 0) return 'готовим…'
+  return `${Math.round(upload.progress * 100)}%`
+}
+
 function removeUpload(key: string) {
   uploads.value = uploads.value.filter((item) => item.key !== key)
 }
@@ -159,12 +170,10 @@ function onCancelEdit() {
         v-for="upload in uploads"
         :key="upload.key"
         class="chip"
-        :class="{ 'is-error': upload.error }"
+        :class="{ 'is-error': upload.error, 'is-waiting': isWaiting(upload) }"
       >
         <span class="chip__name">{{ upload.name }}</span>
-        <span class="chip__status">
-          {{ upload.error || (upload.fileId ? 'готово' : `${Math.round(upload.progress * 100)}%`) }}
-        </span>
+        <span class="chip__status">{{ statusLabel(upload) }}</span>
         <span
           v-if="!upload.fileId && !upload.error"
           class="chip__bar"
@@ -413,6 +422,33 @@ function onCancelEdit() {
   background: var(--color-ground);
   border: 1px solid var(--chat-line);
   border-radius: var(--chat-radius);
+}
+
+.chip.is-waiting {
+  background: linear-gradient(
+    90deg,
+    var(--color-ground) 25%,
+    rgba(230, 236, 255, 0.12) 50%,
+    var(--color-ground) 75%
+  );
+  background-size: 300% 100%;
+  animation: chip-shimmer 1.3s ease-in-out infinite;
+}
+
+@keyframes chip-shimmer {
+  from {
+    background-position: 150% 0;
+  }
+
+  to {
+    background-position: -150% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chip.is-waiting {
+    animation: none;
+  }
 }
 
 .chip.is-error {

@@ -85,10 +85,19 @@ export function useFiles() {
     return url
   }
 
-  async function getAttachmentInfo(fileId: string): Promise<Attachment | null> {
-    const ready = attachmentCache.get(fileId)
-    if (ready) return ready
+  function getAttachmentInfo(fileId: string): Promise<Attachment | null> {
+    let pending = attachmentCache.get(fileId)
+    if (!pending) {
+      pending = probeAttachment(fileId).then((info) => {
+        if (!info) attachmentCache.delete(fileId)
+        return info
+      })
+      attachmentCache.set(fileId, pending)
+    }
+    return pending
+  }
 
+  async function probeAttachment(fileId: string): Promise<Attachment | null> {
     try {
       const url = await getStreamUrl(fileId)
       const probe = await fetch(url, { headers: { Range: 'bytes=0-0' } })

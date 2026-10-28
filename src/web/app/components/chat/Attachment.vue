@@ -118,7 +118,7 @@ function formatSize(bytes: number): string {
     </span>
     <span class="file__text">
       <span class="file__name">{{ attachment.name }}</span>
-      <span class="file__size">{{ formatSize(attachment.size) }}</span>
+      <span v-if="attachment.size" class="file__size">{{ formatSize(attachment.size) }}</span>
     </span>
   </a>
 
@@ -126,7 +126,7 @@ function formatSize(bytes: number): string {
     Файл недоступен
   </span>
 
-  <span v-else class="file is-loading" :class="{ 'is-own': own }">Загружаем файл…</span>
+  <span v-else class="loading" :class="{ 'is-own': own }" aria-label="Загружаем файл" />
 
   <Teleport to="body">
     <Transition name="viewer">
@@ -137,18 +137,27 @@ function formatSize(bytes: number): string {
         :aria-label="isVideo ? 'Просмотр видео' : 'Просмотр картинки'"
         @click.self="viewerOpen = false"
       >
-        <video
+        <ChatVideoPlayer
           v-if="isVideo"
-          class="viewer__video"
           :src="attachment.url"
-          controls
-          autoplay
-          playsinline
+          :title="attachment.name === 'Файл' ? undefined : attachment.name"
           @error="onSourceError"
         />
         <img v-else class="viewer__img" :src="attachment.url" :alt="attachment.name" />
         <div class="viewer__bar">
-          <a class="viewer__btn" :href="attachment.url" :download="attachment.name">Скачать</a>
+          <a
+            class="viewer__btn"
+            :href="attachment.url"
+            :download="attachment.name"
+            aria-label="Скачать"
+            title="Скачать"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <path d="M12 4v11" />
+              <path d="M7.5 11.5 12 16l4.5-4.5" />
+              <path d="M5 19h14" />
+            </svg>
+          </a>
           <button
             type="button"
             class="viewer__btn"
@@ -217,12 +226,12 @@ function formatSize(bytes: number): string {
   display: flex;
   align-items: center;
   justify-content: center;
-  min-width: 40px;
-  height: 40px;
-  padding: 0 14px;
-  background: var(--color-lift);
-  border: 1px solid var(--color-line);
-  border-radius: 10px;
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  background: rgba(22, 34, 90, 0.85);
+  border: 1px solid rgba(61, 79, 156, 0.75);
+  border-radius: 999px;
   font-family: var(--font-mono);
   font-size: 12px;
   color: var(--color-text);
@@ -328,14 +337,53 @@ function formatSize(bytes: number): string {
   color: var(--color-ink);
 }
 
-.file.is-loading,
+.loading {
+  display: block;
+  width: 300px;
+  height: 180px;
+  border-radius: var(--chat-radius);
+  background: linear-gradient(
+    90deg,
+    rgba(230, 236, 255, 0.07) 25%,
+    rgba(230, 236, 255, 0.16) 50%,
+    rgba(230, 236, 255, 0.07) 75%
+  );
+  background-size: 300% 100%;
+  animation: attachment-shimmer 1.3s ease-in-out infinite;
+}
+
+.loading.is-own {
+  background: linear-gradient(
+    90deg,
+    rgba(11, 18, 54, 0.1) 25%,
+    rgba(11, 18, 54, 0.22) 50%,
+    rgba(11, 18, 54, 0.1) 75%
+  );
+  background-size: 300% 100%;
+}
+
+@keyframes attachment-shimmer {
+  from {
+    background-position: 150% 0;
+  }
+
+  to {
+    background-position: -150% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loading {
+    animation: none;
+  }
+}
+
 .file.is-broken {
   font-family: var(--font-mono);
   font-size: 11px;
   color: var(--color-text-dim);
 }
 
-.file.is-own.is-loading,
 .file.is-own.is-broken {
   color: var(--color-ink);
   opacity: 0.7;

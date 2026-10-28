@@ -174,7 +174,7 @@ const hasCaption = computed(() => hasMedia.value && Boolean(props.message.body))
   flex-direction: column;
   align-items: stretch;
   gap: 0;
-  width: min-content;
+  width: fit-content;
   padding: 0;
   overflow: hidden;
 }
@@ -188,30 +188,47 @@ const hasCaption = computed(() => hasMedia.value && Boolean(props.message.body))
 }
 
 .bubble.has-caption .bubble__body {
-  padding: 7px 68px 8px 12px;
+  padding: 6px 68px 6px 12px;
 }
 
 .bubble.has-caption .bubble__meta {
   position: absolute;
   right: 12px;
-  bottom: 8px;
+  bottom: 6px;
   padding: 0;
+}
+
+.bubble.has-media :deep(.file) {
+  max-width: none;
+  border: none;
+  border-radius: 0;
+}
+
+.bubble.is-media .bubble__meta {
+  padding: 4px 9px;
+  background: rgba(7, 11, 28, 0.78);
+  border-radius: 999px;
+}
+
+.bubble.is-media:not(.is-deleted) .bubble__meta,
+.bubble.is-own.is-media:not(.is-deleted) .bubble__meta {
+  color: var(--color-text);
+  opacity: 1;
+}
+
+.bubble.is-own.is-media:not(.is-deleted) .bubble__time,
+.bubble.is-own.is-media:not(.is-deleted) .bubble__edited {
+  color: var(--color-text);
 }
 
 .bubble.is-media .bubble__meta {
   position: absolute;
-  right: 12px;
-  bottom: 12px;
-  padding: 3px 8px;
-  background: rgba(7, 11, 28, 0.78);
-  border-radius: 999px;
-  color: var(--color-text);
-  text-shadow: 0 1px 2px rgba(7, 11, 28, 0.6);
+  right: 10px;
+  bottom: 10px;
 }
 
-.bubble.is-media .bubble__time,
-.bubble.is-media .bubble__check {
-  color: var(--color-text);
+.bubble.is-media:not(:has(.media)) :deep(.file) {
+  padding-right: 86px;
 }
 
 .bubble.is-own {

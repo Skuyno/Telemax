@@ -15,6 +15,7 @@ const ws = useWs({ onMessage: handleRealtimeEvent, onReconnect: resync })
 const isNarrow = ref(false)
 const showDialogOnNarrow = ref(false)
 const messagesError = ref('')
+const isRestoring = computed(() => chatStore.isLoadingChats)
 let clock: ReturnType<typeof setInterval> | undefined
 
 function onTyping() {
@@ -62,7 +63,7 @@ watch(
 onMounted(() => {
   // Экран монтируется заново при каждом входе — данные прошлого пользователя не должны остаться.
   chatStore.reset()
-  loadChats()
+  loadChats().then(() => chatStore.restoreActiveChat())
   // Новые сообщения приходят сразу, без F5.
   ws.connect()
   clock = setInterval(() => chatStore.tick(), 1000)
@@ -104,6 +105,7 @@ const showDialog = computed(() => !isNarrow.value || showDialogOnNarrow.value)
         @typing="onTyping"
         @back="showDialogOnNarrow = false"
       />
+      <ChatSkeletonDialog v-else-if="isRestoring" />
       <ChatEmpty v-else :has-chats="chatStore.chats.length > 0 || chatStore.isLoadingChats" />
     </template>
   </div>
