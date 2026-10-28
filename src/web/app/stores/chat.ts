@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import type { Chat, ChatProfile, Message, UserSearchResult } from '~/types/chat'
 
 const TYPING_TTL_MS = 4000
+const ACTIVE_CHAT_KEY = 'telemax.active-chat'
 
 function lastActivity(chat: Chat): string {
   return chat.lastMessage?.createdAt ?? ''
@@ -15,7 +16,7 @@ export const useChatStore = defineStore('chat', {
     hasMoreByChatId: {} as Record<string, boolean>,
     activeChatId: null as string | null,
     search: '',
-    isLoadingChats: false,
+    isLoadingChats: true,
     chatsError: '',
     /** Люди из POST /users/search по текущей строке поиска. */
     userResults: [] as UserSearchResult[],
@@ -83,6 +84,20 @@ export const useChatStore = defineStore('chat', {
 
     setActiveChat(chatId: string | null) {
       this.activeChatId = chatId
+      if (import.meta.client) {
+        if (chatId) localStorage.setItem(ACTIVE_CHAT_KEY, chatId)
+        else localStorage.removeItem(ACTIVE_CHAT_KEY)
+      }
+    },
+
+    hasSavedChat(): boolean {
+      return import.meta.client && Boolean(localStorage.getItem(ACTIVE_CHAT_KEY))
+    },
+
+    restoreActiveChat() {
+      if (!import.meta.client || this.activeChatId) return
+      const saved = localStorage.getItem(ACTIVE_CHAT_KEY)
+      if (saved && this.chats.some((chat) => chat.id === saved)) this.activeChatId = saved
     },
 
     requestSearchFocus() {
@@ -122,7 +137,7 @@ export const useChatStore = defineStore('chat', {
       this.chats = this.chats.filter((item) => item.id !== chatId)
       delete this.messagesByChatId[chatId]
       delete this.hasMoreByChatId[chatId]
-      if (this.activeChatId === chatId) this.activeChatId = null
+      if (this.activeChatId === chatId) this.setActiveChat(null)
     },
 
     clearUnread(chatId: string) {
