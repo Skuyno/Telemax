@@ -86,9 +86,29 @@ const groups = computed(() => {
   return result
 })
 
+let pinTimer: ReturnType<typeof setInterval> | undefined
+let pinStoppedAt = 0
+
 async function scrollToBottom() {
   await nextTick()
-  if (feed.value) feed.value.scrollTop = feed.value.scrollHeight
+  if (!feed.value) return
+  feed.value.scrollTop = feed.value.scrollHeight
+  pinnedToBottom.value = true
+  holdBottom()
+}
+
+/** Пока грузятся вложения, лента меняет высоту — держим низ ещё полторы секунды. */
+function holdBottom() {
+  clearInterval(pinTimer)
+  pinStoppedAt = Date.now() + 1500
+  pinTimer = setInterval(() => {
+    const el = feed.value
+    if (!el || Date.now() > pinStoppedAt) {
+      clearInterval(pinTimer)
+      return
+    }
+    if (pinnedToBottom.value) el.scrollTop = el.scrollHeight
+  }, 80)
 }
 
 async function onSubmit(text: string, attachmentIds: string[]) {
@@ -166,9 +186,37 @@ async function jumpTo(message: Message) {
   highlightTimer = setTimeout(() => (highlightedId.value = null), 2000)
 }
 
+const pinnedToBottom = ref(true)
+let feedObserver: ResizeObserver | null = null
+
 function onScroll() {
-  if (feed.value && feed.value.scrollTop < 40) emit('loadOlder')
+  const el = feed.value
+  if (!el) return
+
+  pinnedToBottom.value = el.scrollHeight - el.scrollTop - el.clientHeight < 90
+  if (el.scrollTop < 40) emit('loadOlder')
 }
+
+onMounted(() => {
+  if (!feed.value || typeof ResizeObserver === 'undefined') return
+
+  feedObserver = new ResizeObserver(() => {
+    if (pinnedToBottom.value && feed.value) feed.value.scrollTop = feed.value.scrollHeight
+  })
+  for (const child of Array.from(feed.value.children)) feedObserver.observe(child)
+})
+
+watch(groups, async () => {
+  if (!feedObserver || !feed.value) return
+  await nextTick()
+  feedObserver.disconnect()
+  for (const child of Array.from(feed.value.children)) feedObserver.observe(child)
+})
+
+onBeforeUnmount(() => {
+  feedObserver?.disconnect()
+  clearInterval(pinTimer)
+})
 
 onBeforeUnmount(() => clearTimeout(highlightTimer))
 
@@ -450,6 +498,7 @@ watch(
 .dialog__feed {
   flex: 1;
   overflow-y: auto;
+  overflow-anchor: none;
   padding: 20px;
   background-image: var(--chat-grid);
   background-size: 48px 48px;
