@@ -231,6 +231,14 @@ const hasCaption = computed(() => hasMedia.value && Boolean(props.message.body))
   padding-right: 86px;
 }
 
+.bubble.is-media :deep(.audio) {
+  padding-bottom: 14px;
+}
+
+.bubble.is-media :deep(.audio__info) {
+  padding-right: 64px;
+}
+
 .bubble.is-own {
   background: var(--color-accent);
   border-color: var(--color-accent);
