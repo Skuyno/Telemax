@@ -42,6 +42,7 @@ async function onSourceError() {
 
 const isImage = computed(() => attachment.value?.type.startsWith('image/') ?? false)
 const isVideo = computed(() => attachment.value?.type.startsWith('video/') ?? false)
+const isAudio = computed(() => attachment.value?.type.startsWith('audio/') ?? false)
 
 const viewerOpen = ref(false)
 
@@ -102,6 +103,16 @@ function formatSize(bytes: number): string {
     </span>
     <span v-if="duration" class="media__badge">{{ duration }}</span>
   </button>
+
+  <ChatAudioPlayer
+    v-else-if="attachment && isAudio"
+    :file-id="fileId"
+    :src="attachment.url"
+    :name="attachment.name"
+    :size="attachment.size"
+    :own="own"
+    @error="onSourceError"
+  />
 
   <a
     v-else-if="attachment"
