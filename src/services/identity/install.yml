@@ -16,7 +16,7 @@ vars:
     field: allow_registration
     label: "Разрешить самостоятельную регистрацию"
     input_type: checkbox
-    default: "true"
+    default: "false"
   SUPERUSER_USERNAME:
     source: form
     field: superuser_username
