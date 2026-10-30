@@ -8,7 +8,9 @@ const { searchUsers, openChatWith, openSavedChat } = useChats()
 const myName = computed(() => auth.user?.displayName ?? auth.user?.username ?? '')
 const myInitials = computed(() => (myName.value ? toInitials(myName.value) : ''))
 
-const emit = defineEmits<{ select: [string] }>()
+const props = defineProps<{ compact?: boolean }>()
+
+const emit = defineEmits<{ select: [string]; expand: [] }>()
 
 const searchInput = ref<HTMLInputElement | null>(null)
 const openingUserId = ref<string | null>(null)
@@ -62,8 +64,27 @@ watch(
 
 watch(
   () => chatStore.searchFocusTick,
-  () => searchInput.value?.focus(),
+  async () => {
+    if (props.compact) {
+      emit('expand')
+      await nextTick()
+    }
+    searchInput.value?.focus()
+  },
 )
+
+watch(
+  () => props.compact,
+  (compact) => {
+    if (compact) chatStore.setSearch('')
+  },
+)
+
+async function onExpandSearch() {
+  emit('expand')
+  await nextTick()
+  searchInput.value?.focus()
+}
 
 const menuOpen = ref(false)
 const groupOpen = ref(false)
@@ -104,11 +125,12 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <aside class="sidebar">
+  <aside class="sidebar" :class="{ 'is-compact': compact }">
     <header class="sidebar__head">
-      <span class="sidebar__logo">Телемакс</span>
+      <span v-if="!compact" class="sidebar__logo">Телемакс</span>
       <div class="sidebar__actions">
         <button
+          v-if="!compact"
           type="button"
           class="sidebar__icon-btn is-saved"
           aria-label="Избранное"
@@ -180,7 +202,20 @@ onBeforeUnmount(() => {
     </header>
 
     <div class="sidebar__panel">
-      <label class="sidebar__search">
+      <button
+        v-if="compact"
+        type="button"
+        class="sidebar__icon-btn sidebar__search-btn"
+        aria-label="Поиск по @username"
+        title="Поиск"
+        @click="onExpandSearch"
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <circle cx="11" cy="11" r="7" />
+          <path d="M20 20l-3.5-3.5" />
+        </svg>
+      </button>
+      <label v-else class="sidebar__search">
         <svg
           class="sidebar__search-icon"
           viewBox="0 0 24 24"
@@ -211,10 +246,11 @@ onBeforeUnmount(() => {
         :key="chat.id"
         :chat="chat"
         :active="chat.id === chatStore.activeChatId"
+        :compact="compact"
         @select="onSelect(chat.id)"
       />
 
-      <template v-if="isSearching">
+      <template v-if="!compact && isSearching">
         <p class="sidebar__section">Люди</p>
 
         <ChatUserItem
@@ -232,7 +268,7 @@ onBeforeUnmount(() => {
         </p>
       </template>
 
-      <template v-else>
+      <template v-else-if="!compact">
         <p v-if="openError" class="sidebar__empty is-error">{{ openError }}</p>
         <p v-else-if="chatStore.chatsError" class="sidebar__empty is-error">
           {{ chatStore.chatsError }}
@@ -244,11 +280,11 @@ onBeforeUnmount(() => {
       </template>
     </div>
 
-    <footer v-if="myName" class="sidebar__me">
+    <footer v-if="myName" class="sidebar__me" :title="compact ? myName : undefined">
       <span class="sidebar__me-avatar">
         <UserAvatar :url="auth.user?.avatarUrl" :initials="myInitials" />
       </span>
-      <span class="sidebar__me-name">{{ myName }}</span>
+      <span v-if="!compact" class="sidebar__me-name">{{ myName }}</span>
     </footer>
 
     <ChatGroupCreate v-if="groupOpen" @close="groupOpen = false" @created="onGroupCreated" />
@@ -259,7 +295,7 @@ onBeforeUnmount(() => {
 .sidebar {
   display: flex;
   flex-direction: column;
-  width: 300px;
+  width: var(--sidebar-width, 300px);
   flex: none;
   background: var(--color-lift);
   border-right: 1px solid var(--chat-line);
@@ -500,9 +536,40 @@ onBeforeUnmount(() => {
   white-space: nowrap;
 }
 
+.sidebar.is-compact .sidebar__head {
+  justify-content: center;
+  padding: 0;
+}
+
+.sidebar.is-compact .sidebar__panel {
+  display: flex;
+  justify-content: center;
+  padding: 14px 0 8px;
+}
+
+.sidebar__search-btn {
+  width: 44px;
+  height: 42px;
+  border-radius: var(--chat-radius-lg);
+}
+
+.sidebar.is-compact .sidebar__list {
+  padding: 4px 8px 12px;
+}
+
+.sidebar.is-compact .sidebar__me {
+  justify-content: center;
+  padding: 14px 0;
+}
+
 @media (max-width: 900px) {
   .sidebar {
     width: 100%;
+  }
+
+  .sidebar__dropdown {
+    right: 0;
+    left: auto;
   }
 }
 </style>

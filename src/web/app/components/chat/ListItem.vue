@@ -2,7 +2,7 @@
 import type { Chat } from '~/types/chat'
 import { formatChatListTime } from '~/utils/chatTime'
 
-const props = defineProps<{ chat: Chat; active: boolean }>()
+const props = defineProps<{ chat: Chat; active: boolean; compact?: boolean }>()
 
 defineEmits<{ select: [] }>()
 
@@ -21,16 +21,26 @@ const preview = computed(() => {
 </script>
 
 <template>
-  <button type="button" class="row" :class="{ 'is-active': active }" @click="$emit('select')">
+  <button
+    type="button"
+    class="row"
+    :class="{ 'is-active': active, 'is-compact': compact }"
+    :title="compact ? chat.title : undefined"
+    :aria-label="compact ? chat.title : undefined"
+    @click="$emit('select')"
+  >
     <span class="row__avatar">
       <ChatSavedIcon v-if="chat.isSaved" />
       <ChatGroupIcon v-else-if="chat.type === 'group'" />
       <ChatNotificationsIcon v-else-if="chat.type === 'notifications'" />
       <UserAvatar v-else :url="chat.avatarUrl" :initials="chat.initials" />
       <span v-if="online" class="row__online" aria-label="в сети" />
+      <span v-if="compact && unread" class="row__unread row__unread--corner">
+        {{ unread > 99 ? '99+' : unread }}
+      </span>
     </span>
 
-    <span class="row__body">
+    <span v-if="!compact" class="row__body">
       <span class="row__top">
         <span class="row__title">{{ chat.title }}</span>
         <span v-if="chat.lastMessage" class="row__time">
@@ -137,6 +147,27 @@ const preview = computed(() => {
   font-weight: 600;
   font-size: 11px;
   color: var(--color-ink);
+}
+
+.row.is-compact {
+  justify-content: center;
+  padding: 8px 0;
+}
+
+.row__unread--corner {
+  position: absolute;
+  top: -6px;
+  right: -8px;
+  min-width: 20px;
+  height: 18px;
+  padding: 0 5px;
+  border: 2px solid var(--color-lift);
+  font-size: 10px;
+}
+
+.row.is-active .row__unread--corner,
+.row:hover .row__unread--corner {
+  border-color: var(--color-surface);
 }
 
 .row__body {
