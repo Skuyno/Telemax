@@ -16,6 +16,7 @@ from app.dependencies import get_async_db
 from app.users import repository as users_repository
 from app.users import service as users_service
 from app.users.schemas import (
+    AdminResetPasswordRequest,
     CreateAccountRequest,
     UsernameAvailableResponse,
     UserResponse,
@@ -87,6 +88,80 @@ async def delete_account(
             not found, 403 if the target is the superuser.
     """
     await users_service.delete_account(db, caller_id, account_id)
+
+
+@router.post("/accounts/{account_id}/block")
+async def block_account(
+    account_id: UUID,
+    caller_id: UUID = Query(...),
+    db: AsyncSession = Depends(get_async_db),
+) -> UserResponse:
+    """Block an account. See app/users/service.py:block_account.
+
+    Args:
+        account_id: Id of the account to block.
+        caller_id: Id of the account requesting the block (checked here
+            for the self-block and superuser invariants).
+        db: Async database session.
+
+    Returns:
+        UserResponse: The now-blocked account.
+
+    Raises:
+        HTTPException: 400 if targeting the caller's own account, 404 if
+            not found, 403 if the target is the superuser.
+    """
+    account = await users_service.block_account(db, caller_id, account_id)
+    return UserResponse.model_validate(account)
+
+
+@router.post("/accounts/{account_id}/unblock")
+async def unblock_account(
+    account_id: UUID, db: AsyncSession = Depends(get_async_db)
+) -> UserResponse:
+    """Unblock an account. See app/users/service.py:unblock_account.
+
+    Args:
+        account_id: Id of the account to unblock.
+        db: Async database session.
+
+    Returns:
+        UserResponse: The now-unblocked account.
+
+    Raises:
+        HTTPException: 404 if the account doesn't exist.
+    """
+    account = await users_service.unblock_account(db, account_id)
+    return UserResponse.model_validate(account)
+
+
+@router.post("/accounts/{account_id}/password")
+async def admin_reset_password(
+    account_id: UUID,
+    data: AdminResetPasswordRequest,
+    caller_id: UUID = Query(...),
+    db: AsyncSession = Depends(get_async_db),
+) -> UserResponse:
+    """Reset an account's password. See app/users/service.py:admin_reset_password.
+
+    Args:
+        account_id: Id of the account whose password to reset.
+        data: The new password.
+        caller_id: Id of the account requesting the reset (checked here
+            for the self-target and superuser invariants).
+        db: Async database session.
+
+    Returns:
+        UserResponse: The account whose password was reset.
+
+    Raises:
+        HTTPException: 400 if targeting the caller's own account, 404 if
+            not found, 403 if the target is the superuser.
+    """
+    account = await users_service.admin_reset_password(
+        db, caller_id, account_id, data.new_password
+    )
+    return UserResponse.model_validate(account)
 
 
 @router.get("/accounts")

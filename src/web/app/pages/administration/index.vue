@@ -56,6 +56,29 @@ const orbit = [
           <AdminOrbitTile v-for="(tile, index) in orbit" :key="index" v-bind="tile" />
         </div>
       </NuxtLink>
+
+      <NuxtLink to="/administration/broadcast" class="secondary">
+        <span class="secondary-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9">
+            <path d="M3 11l18-7-7 18-2.5-7.5L3 11z" />
+          </svg>
+        </span>
+        <span class="secondary-text">
+          <span class="secondary-title">Рассылка</span>
+          <span class="secondary-desc">Сообщение всем пользователям в чат «Уведомления»</span>
+        </span>
+        <svg
+          class="secondary-arrow"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          aria-hidden="true"
+        >
+          <path d="M5 12h14" />
+          <path d="M13 6l6 6-6 6" />
+        </svg>
+      </NuxtLink>
     </main>
   </div>
 </template>
@@ -83,6 +106,7 @@ const orbit = [
   position: relative;
   display: grid;
   place-items: center;
+  gap: 20px;
   min-height: calc(100vh - 76px);
   padding: 44px 36px;
 }
@@ -248,6 +272,72 @@ p {
   height: 38px;
 }
 
+.secondary {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 22px 26px;
+  background: var(--color-lift);
+  border-radius: 20px;
+  box-shadow: inset 0 0 0 1px rgba(79, 216, 255, 0.28);
+  color: inherit;
+  text-decoration: none;
+  transition:
+    box-shadow 0.15s ease,
+    transform 0.15s ease;
+}
+
+.secondary:hover {
+  box-shadow: inset 0 0 0 1px rgba(79, 216, 255, 0.5);
+  transform: translateY(-2px);
+}
+
+.secondary-icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 48px;
+  height: 48px;
+  background: rgba(79, 216, 255, 0.14);
+  border-radius: 14px;
+  box-shadow: inset 0 0 0 1px rgba(79, 216, 255, 0.35);
+  color: var(--color-focus);
+}
+
+.secondary-icon svg {
+  width: 24px;
+  height: 24px;
+}
+
+.secondary-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+.secondary-title {
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 16px;
+  color: var(--color-text);
+}
+
+.secondary-desc {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.secondary-arrow {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  color: var(--color-text-dim);
+}
+
 @media (max-width: 860px) {
   .hero {
     grid-template-columns: 1fr;
@@ -259,6 +349,12 @@ p {
 
   .wrap {
     padding: 24px 16px;
+  }
+}
+
+@media (max-width: 480px) {
+  .secondary-desc {
+    display: none;
   }
 }
 </style>

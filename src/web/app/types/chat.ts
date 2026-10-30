@@ -6,7 +6,7 @@ export interface ChatPreview {
 
 export interface Chat {
   id: string
-  type: 'direct' | 'group'
+  type: 'direct' | 'group' | 'notifications'
   title: string
   initials: string
   peerId: string
@@ -74,7 +74,7 @@ export interface GroupMember {
 /** Raw response shape from GET /chats */
 export interface ChatResponse {
   id: string
-  type: 'direct' | 'group'
+  type: 'direct' | 'group' | 'notifications'
   title: string | null
   unread_count: number
   last_message: {

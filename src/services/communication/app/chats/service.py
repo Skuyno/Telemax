@@ -1,7 +1,7 @@
 """Business logic for chats."""
 
 from typing import Sequence
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import httpx
 from fastapi import HTTPException
@@ -19,6 +19,8 @@ from app.chats.schemas import (
 )
 from app.config import settings
 from app.events import nats_client
+
+_ACCOUNTS_PAGE_SIZE = 200
 
 SUBJECT_MESSAGE_CREATED = "chat.message.created"
 SUBJECT_MESSAGE_UPDATED = "chat.message.updated"
@@ -242,9 +244,17 @@ async def send_message(
         Message: The created of existing message.
 
     Raises:
-        HTTPException: 403 if the sender is not a member of the chat.
+        HTTPException: 403 if the sender is not a member of the chat, or if
+            the chat is a personal "Уведомления" chat (read-only for
+            everyone — the only way a message lands there is a broadcast,
+            see broadcast_message below, never this endpoint).
     """
     await _require_membership(db, chat_id, user_id)
+
+    chat = await chats_repository.get_chat(db, chat_id)
+    if chat is not None and chat.type == "notifications":
+        raise HTTPException(status_code=403, detail="this chat is read-only")
+
     await _validate_attachments(chat_id, data.attachment_file_ids)
 
     msg, created = await chats_repository.create_message(
@@ -781,3 +791,164 @@ async def update_group_chat(
         raise HTTPException(status_code=404, detail="group chat not found")
 
     await _publish_chat_sync_required(db, chat_id, "updated")
+
+
+async def get_or_create_notifications_chat(db: AsyncSession, user_id: UUID) -> Chat:
+    """Get a user's personal "Уведомления" chat, creating it on first use.
+
+    Args:
+        db: Async database session.
+        user_id: Id of the user the chat belongs to.
+
+    Returns:
+        Chat: The user's notifications chat (existing or just created).
+    """
+    chat = await chats_repository.get_notifications_chat(db, user_id)
+    if chat is not None:
+        return chat
+
+    try:
+        return await chats_repository.create_notifications_chat(db, user_id)
+    except IntegrityError:
+        chat = await chats_repository.get_notifications_chat(db, user_id)
+        if chat is None:
+            raise
+        return chat
+
+
+async def offboard_user(db: AsyncSession, user_id: UUID) -> None:
+    """Remove a deleted user's traces from this service's chat data.
+
+    Called as part of an admin deleting the user's account entirely
+    (identity has no reach into this service's database, so administration
+    calls this first — see that service's extended delete flow). Direct
+    (1:1) chats are hard-deleted outright, history included. Group
+    memberships are left quietly if the user was a plain member; if they
+    were the owner, ownership transfers to the oldest remaining member, or
+    the now-empty group is deleted entirely if no members are left — the
+    group and its history survive for everyone else either way.
+
+    Args:
+        db: Async database session.
+        user_id: Id of the user being removed.
+    """
+    direct_chat_ids = await chats_repository.get_direct_chat_ids_for_user(db, user_id)
+    other_members = {
+        chat_id: await chats_repository.get_other_direct_chat_member(
+            db, chat_id, user_id
+        )
+        for chat_id in direct_chat_ids
+    }
+    await chats_repository.delete_chats(db, direct_chat_ids)
+    for chat_id, other_member_id in other_members.items():
+        if other_member_id is None:
+            continue
+        await nats_client.publish(
+            SUBJECT_CHAT_SYNC_REQUIRED,
+            {
+                "chat_id": str(chat_id),
+                "reason": "chat_deleted",
+                "recipient_ids": [str(other_member_id)],
+            },
+        )
+
+    memberships = await chats_repository.get_group_memberships_for_user(db, user_id)
+    for chat_id, role in memberships:
+        if role == "owner":
+            new_owner_id = await chats_repository.get_oldest_other_member(
+                db, chat_id, exclude_user_id=user_id
+            )
+            if new_owner_id is None:
+                await chats_repository.delete_chats(db, [chat_id])
+                continue
+            await chats_repository.transfer_group_ownership(db, chat_id, new_owner_id)
+
+        await chats_repository.remove_chat_member(db, chat_id, user_id)
+        await _publish_chat_sync_required(
+            db, chat_id, "member_removed", extra_recipient_ids=[user_id]
+        )
+
+
+async def _list_all_user_ids() -> list[UUID]:
+    """Enumerate every user id known to identity.
+
+    Returns:
+        list[UUID]: Every registered user's id.
+    """
+    user_ids: list[UUID] = []
+    offset = 0
+    async with httpx.AsyncClient() as client:
+        while True:
+            response = await client.get(
+                f"{settings.identity_url}/internal/accounts",
+                params={"limit": _ACCOUNTS_PAGE_SIZE, "offset": offset},
+            )
+            response.raise_for_status()
+            page = response.json()
+            if not page:
+                break
+            user_ids.extend(UUID(account["id"]) for account in page)
+            if len(page) < _ACCOUNTS_PAGE_SIZE:
+                break
+            offset += _ACCOUNTS_PAGE_SIZE
+    return user_ids
+
+
+async def broadcast_message(
+    db: AsyncSession,
+    sender_id: UUID,
+    body: str,
+    attachment_file_ids: Sequence[UUID],
+    target_user_ids: Sequence[UUID] | None,
+) -> int:
+    """Send a system message into every target user's own "Уведомления" chat.
+
+    Each recipient gets their own message row in their own personal chat —
+    not one message in one shared chat — so a future *targeted* broadcast
+    (a chosen subset of users, not everyone) is just a different
+    `target_user_ids` list, not a different code path.
+
+    Args:
+        db: Async database session.
+        sender_id: Id of the admin triggering the broadcast (recorded as
+            the message's sender).
+        body: Message text.
+        attachment_file_ids: Ids of already-uploaded files (from
+            file-orchestrator) to attach to every recipient's copy — the
+            same file_id is reused for each, never re-uploaded.
+        target_user_ids: Specific users to broadcast to, or None to send
+            to literally everyone.
+
+    Returns:
+        int: Number of users the message was sent to.
+    """
+    user_ids = (
+        list(target_user_ids)
+        if target_user_ids is not None
+        else await _list_all_user_ids()
+    )
+
+    for user_id in user_ids:
+        chat = await get_or_create_notifications_chat(db, user_id)
+
+        msg, created = await chats_repository.create_message(
+            db, chat.id, sender_id, body, uuid4()
+        )
+        if created and attachment_file_ids:
+            await chats_repository.add_attachments(db, msg.id, attachment_file_ids)
+        await db.commit()
+
+        await nats_client.publish(
+            SUBJECT_MESSAGE_CREATED,
+            {
+                "id": str(msg.id),
+                "chat_id": str(msg.chat_id),
+                "sender_id": str(msg.sender_id),
+                "recipient_ids": [str(user_id)],
+                "body": msg.body,
+                "attachment_file_ids": [str(fid) for fid in attachment_file_ids],
+                "created_at": msg.created_at.isoformat(),
+            },
+        )
+
+    return len(user_ids)

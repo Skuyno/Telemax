@@ -1,5 +1,6 @@
 """Tests for file upload, download and internal validation."""
 
+from unittest.mock import AsyncMock
 from uuid import uuid4
 
 from httpx import AsyncClient
@@ -35,6 +36,56 @@ async def test_upload_and_download_roundtrip(client: AsyncClient):
     download = await client.get(f"/files/{body['id']}", headers={"X-User-Id": user_id})
     assert download.status_code == 200
     assert download.content == b"hello world"
+
+
+async def test_download_authorizes_via_message_access_not_chat_membership(
+    client: AsyncClient, mock_communication_service
+):
+    """Download authorization goes through the message-based /access/ check.
+
+    Not the chat-membership endpoint — required for a broadcast attachment
+    to be downloadable by recipients who were never members of the chat it
+    was originally uploaded into.
+    """
+    user_id = str(uuid4())
+    body = await _upload(client, user_id)
+
+    download = await client.get(f"/files/{body['id']}", headers={"X-User-Id": user_id})
+    assert download.status_code == 200
+
+    called_urls = [
+        call.args[0]
+        for call in mock_communication_service.return_value.get.call_args_list
+    ]
+    assert any("/access/" in url for url in called_urls)
+
+
+async def test_download_is_forbidden_when_access_check_denies(
+    client: AsyncClient, mock_communication_service
+):
+    """A user with no message-level access to the file is rejected."""
+
+    def _deny_access_allow_membership(url, *args, **kwargs):
+        response = AsyncMock()
+        response.raise_for_status = lambda: None
+        if url.endswith("/members"):
+            response.json = lambda: {"user_ids": []}
+        elif "/access/" in url:
+            response.json = lambda: {"authorized": False}
+        else:
+            response.json = lambda: {"is_member": True}
+        return response
+
+    mock_communication_service.return_value.get.side_effect = (
+        _deny_access_allow_membership
+    )
+
+    user_id = str(uuid4())
+    body = await _upload(client, user_id)
+
+    download = await client.get(f"/files/{body['id']}", headers={"X-User-Id": user_id})
+
+    assert download.status_code == 403
 
 
 async def test_download_without_range_reports_whole_size(client: AsyncClient):

@@ -13,6 +13,7 @@ export function useAuth() {
       avatarUrl: me.avatar_url,
       createdAt: me.created_at,
       role: me.role,
+      blocked: me.blocked,
     })
   }
 

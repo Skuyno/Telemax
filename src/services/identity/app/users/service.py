@@ -150,6 +150,103 @@ async def delete_account(db: AsyncSession, caller_id: UUID, target_id: UUID) -> 
     await users_repository.delete_user(db, target)
 
 
+async def block_account(db: AsyncSession, caller_id: UUID, target_id: UUID) -> User:
+    """Block an account (internal — no role-permission check).
+
+    Bumps `token_version`, so any refresh token the account already holds
+    stops working immediately; an already-issued access token still works
+    until it naturally expires (<=15 min) — there's no per-request
+    revocation check, by design (see login's own blocked check for the
+    other half of enforcement).
+
+    Args:
+        db: Async database session.
+        caller_id: Id of the account requesting the block.
+        target_id: Id of the account to block.
+
+    Raises:
+        HTTPException: 400 if the caller targets their own account (an
+            unrecoverable self-lockout — no one could unblock them), 404
+            if the target doesn't exist, 403 if the target is the superuser.
+    """
+    if target_id == caller_id:
+        raise HTTPException(status_code=400, detail="Cannot block your own account")
+
+    target = await users_repository.get_user_by_id(db, target_id)
+    if target is None:
+        raise HTTPException(status_code=404, detail="Account not found")
+
+    if target.role == SUPERUSER:
+        raise HTTPException(status_code=403, detail="Cannot block this account")
+
+    return await users_repository.update_user(
+        db, target, {"blocked": True, "token_version": target.token_version + 1}
+    )
+
+
+async def unblock_account(db: AsyncSession, target_id: UUID) -> User:
+    """Unblock an account (internal — no role-permission check).
+
+    Always a safe, recoverable action — no self-targeting or superuser
+    restriction needed here the way block/delete have one.
+
+    Args:
+        db: Async database session.
+        target_id: Id of the account to unblock.
+
+    Raises:
+        HTTPException: 404 if the target doesn't exist.
+    """
+    target = await users_repository.get_user_by_id(db, target_id)
+    if target is None:
+        raise HTTPException(status_code=404, detail="Account not found")
+
+    return await users_repository.update_user(db, target, {"blocked": False})
+
+
+async def admin_reset_password(
+    db: AsyncSession, caller_id: UUID, target_id: UUID, new_password: str
+) -> User:
+    """Set a new password for an account on an admin's behalf.
+
+    Bumps `token_version`, same as every other password change in this
+    service — invalidates whatever sessions the account already had.
+
+    Args:
+        db: Async database session.
+        caller_id: Id of the account requesting the reset.
+        target_id: Id of the account whose password is being reset.
+        new_password: The new password to set.
+
+    Raises:
+        HTTPException: 400 if the caller targets their own account (use
+            the self-service `/password/reset` instead), 404 if the target
+            doesn't exist, 403 if the target is the superuser.
+    """
+    if target_id == caller_id:
+        raise HTTPException(
+            status_code=400, detail="Use the self-service password reset instead"
+        )
+
+    target = await users_repository.get_user_by_id(db, target_id)
+    if target is None:
+        raise HTTPException(status_code=404, detail="Account not found")
+
+    if target.role == SUPERUSER:
+        raise HTTPException(
+            status_code=403, detail="Cannot reset this account's password"
+        )
+
+    return await users_repository.update_user(
+        db,
+        target,
+        {
+            "password_hash": hash_password(new_password),
+            "token_version": target.token_version + 1,
+        },
+    )
+
+
 async def list_accounts(db: AsyncSession, limit: int, offset: int) -> Sequence[User]:
     """List accounts for an admin-management screen.
 
@@ -170,12 +267,19 @@ async def authenticate_user(db: AsyncSession, data: LoginRequest) -> User | None
     Args:
         db: Async database session.
         data: Login request body.
+
+    Raises:
+        HTTPException: 403 if the credentials are correct but the account
+            is blocked. Checked only after the password verifies, so a
+            wrong password never reveals whether a username is blocked.
     """
     user = await users_repository.get_user_by_username(db, data.username)
     password_hash = user.password_hash if user else _DUMMY_HASH
-    if verify_password(data.password, password_hash) and user:
-        return user
-    return None
+    if not (verify_password(data.password, password_hash) and user):
+        return None
+    if user.blocked:
+        raise HTTPException(status_code=403, detail="Account is blocked")
+    return user
 
 
 async def get_user_profile(db: AsyncSession, data: UUID) -> User | None:

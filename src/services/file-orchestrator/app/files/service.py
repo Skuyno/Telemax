@@ -35,6 +35,28 @@ async def assert_chat_member(chat_id: UUID, user_id: UUID) -> None:
         raise HTTPException(status_code=403, detail="not a member of this chat")
 
 
+async def assert_can_access_file(file_id: UUID, user_id: UUID) -> None:
+    """Verify the user can see some message that attaches this file.
+
+    Deliberately not "is the user a member of file.chat_id" — that's only
+    where the file was originally uploaded, not necessarily where a message
+    actually attaching it lives later (a broadcast attaches the same
+    file_id to a different message in every recipient's own notifications
+    chat, none of which is the upload chat). Communication owns messages
+    and attachments, so it answers this, not a membership lookup here.
+
+    Raises:
+        HTTPException: 403 if the user isn't authorized.
+    """
+    async with httpx.AsyncClient() as client:
+        response = await client.get(
+            f"{settings.communication_url}/internal/files/{file_id}/access/{user_id}"
+        )
+    response.raise_for_status()
+    if not response.json()["authorized"]:
+        raise HTTPException(status_code=403, detail="not authorized for this file")
+
+
 async def _get_chat_member_ids(chat_id: UUID) -> list[str]:
     """Fetch every member's user id, so ws-gateway knows who to notify."""
     async with httpx.AsyncClient() as client:
@@ -147,7 +169,8 @@ async def download_file(
     Raises:
         HTTPException: 404 if the file doesn't exist or isn't ready, 401 if
             neither a user id nor a signed link was given, 403 if the
-            signed link is invalid/expired or the user isn't a chat member.
+            signed link is invalid/expired or the user can't otherwise
+            access this file.
     """
     file = await files_repository.get_file(db, file_id)
     if file is None or file.status != "ready":
@@ -157,7 +180,7 @@ async def download_file(
         if not links.verify_link(str(file_id), sig, exp):
             raise HTTPException(status_code=403, detail="invalid or expired link")
     elif user_id is not None:
-        await assert_chat_member(file.chat_id, user_id)
+        await assert_can_access_file(file_id, user_id)
     else:
         raise HTTPException(status_code=401, detail="authorization required")
 
@@ -181,13 +204,13 @@ async def create_file_link(
 
     Raises:
         HTTPException: 404 if the file doesn't exist or isn't ready, 403 if
-            the caller isn't a member of the file's chat.
+            the caller can't access this file.
     """
     file = await files_repository.get_file(db, file_id)
     if file is None or file.status != "ready":
         raise HTTPException(status_code=404, detail="file not found")
 
-    await assert_chat_member(file.chat_id, user_id)
+    await assert_can_access_file(file_id, user_id)
 
     sig, exp = links.issue_link(str(file_id))
     url = f"/files/{file_id}?sig={sig}&exp={exp}"

@@ -76,13 +76,18 @@ async def create_account(
 
 
 async def delete_account(caller_id: UUID, target_id: UUID) -> None:
-    """Delete an admin or user account.
+    """Delete an admin or user account, cascading its chat data first.
 
     A superuser can delete admin or user accounts; an admin can only
     delete user accounts. Deleting your own account, and deleting the
     superuser account, are refused by identity itself regardless of what
     happens here — those are invariants of the system, not a matter of
     role permissions.
+
+    Communication's chat data (the user's direct chats, their group
+    memberships) is cleaned up *before* identity's own delete — if
+    anything's going to fail partway, better to fail before the account is
+    irreversibly gone than after.
 
     Raises:
         HTTPException: 400 if targeting the caller's own account, 404 if
@@ -102,6 +107,12 @@ async def delete_account(caller_id: UUID, target_id: UUID) -> None:
         raise HTTPException(status_code=403, detail="Cannot delete this account")
 
     async with httpx.AsyncClient() as client:
+        response = await client.post(
+            f"{settings.communication_url}/internal/users/{target_id}/offboard"
+        )
+    response.raise_for_status()
+
+    async with httpx.AsyncClient() as client:
         response = await client.delete(
             f"{settings.identity_url}/internal/accounts/{target_id}",
             params={"caller_id": str(caller_id)},
@@ -109,6 +120,155 @@ async def delete_account(caller_id: UUID, target_id: UUID) -> None:
     if response.status_code == 404:
         raise HTTPException(status_code=404, detail="Account not found")
     response.raise_for_status()
+
+
+async def block_account(caller_id: UUID, target_id: UUID) -> AccountResponse:
+    """Block an account.
+
+    Same role-permission model as delete: a superuser can block admin or
+    user accounts, an admin can only block user accounts. Self-targeting
+    and targeting the superuser are refused by identity itself regardless.
+
+    Raises:
+        HTTPException: 400 if targeting the caller's own account, 404 if
+            the target doesn't exist, 403 if the caller's role can't act
+            on the target's role.
+    """
+    caller_role = await _require_caller_role(caller_id)
+
+    if target_id == caller_id:
+        raise HTTPException(status_code=400, detail="Cannot block your own account")
+
+    target_role = await _fetch_role(target_id)
+    if target_role is None:
+        raise HTTPException(status_code=404, detail="Account not found")
+
+    if target_role not in MANAGEABLE_ROLES.get(caller_role, set()):
+        raise HTTPException(status_code=403, detail="Cannot block this account")
+
+    async with httpx.AsyncClient() as client:
+        response = await client.post(
+            f"{settings.identity_url}/internal/accounts/{target_id}/block",
+            params={"caller_id": str(caller_id)},
+        )
+    if response.status_code == 404:
+        raise HTTPException(status_code=404, detail="Account not found")
+    response.raise_for_status()
+    return AccountResponse.model_validate(response.json())
+
+
+async def unblock_account(caller_id: UUID, target_id: UUID) -> AccountResponse:
+    """Unblock an account.
+
+    Same role-permission model as block — unblocking someone is still an
+    account-management action, gated the same way.
+
+    Raises:
+        HTTPException: 404 if the target doesn't exist, 403 if the
+            caller's role can't act on the target's role.
+    """
+    caller_role = await _require_caller_role(caller_id)
+
+    target_role = await _fetch_role(target_id)
+    if target_role is None:
+        raise HTTPException(status_code=404, detail="Account not found")
+
+    if target_role not in MANAGEABLE_ROLES.get(caller_role, set()):
+        raise HTTPException(status_code=403, detail="Cannot unblock this account")
+
+    async with httpx.AsyncClient() as client:
+        response = await client.post(
+            f"{settings.identity_url}/internal/accounts/{target_id}/unblock"
+        )
+    if response.status_code == 404:
+        raise HTTPException(status_code=404, detail="Account not found")
+    response.raise_for_status()
+    return AccountResponse.model_validate(response.json())
+
+
+async def admin_reset_password(
+    caller_id: UUID, target_id: UUID, new_password: str
+) -> AccountResponse:
+    """Reset a target account's password on an admin's behalf.
+
+    Same role-permission model as delete/block. Self-targeting is refused
+    — use the self-service password reset for your own account instead.
+
+    Raises:
+        HTTPException: 400 if targeting the caller's own account, 404 if
+            the target doesn't exist, 403 if the caller's role can't act
+            on the target's role.
+    """
+    caller_role = await _require_caller_role(caller_id)
+
+    if target_id == caller_id:
+        raise HTTPException(
+            status_code=400, detail="Use the self-service password reset instead"
+        )
+
+    target_role = await _fetch_role(target_id)
+    if target_role is None:
+        raise HTTPException(status_code=404, detail="Account not found")
+
+    if target_role not in MANAGEABLE_ROLES.get(caller_role, set()):
+        raise HTTPException(
+            status_code=403, detail="Cannot reset this account's password"
+        )
+
+    async with httpx.AsyncClient() as client:
+        response = await client.post(
+            f"{settings.identity_url}/internal/accounts/{target_id}/password",
+            params={"caller_id": str(caller_id)},
+            json={"new_password": new_password},
+        )
+    if response.status_code == 404:
+        raise HTTPException(status_code=404, detail="Account not found")
+    response.raise_for_status()
+    return AccountResponse.model_validate(response.json())
+
+
+async def get_broadcast_chat(caller_id: UUID) -> UUID:
+    """Ensure the caller's own "Уведомления" chat exists, for attachments.
+
+    An admin composing a broadcast uploads files against this chat_id
+    using the normal file-upload flow — they're a member of their own
+    notifications chat, like every user, so no special upload path is
+    needed.
+
+    Raises:
+        HTTPException: 403 if the caller isn't admin/superuser.
+    """
+    await _require_caller_role(caller_id)
+
+    async with httpx.AsyncClient() as client:
+        response = await client.post(
+            f"{settings.communication_url}/internal/users/{caller_id}/notifications-chat"
+        )
+    response.raise_for_status()
+    return UUID(response.json()["chat_id"])
+
+
+async def broadcast(
+    caller_id: UUID, body: str, attachment_file_ids: list[UUID]
+) -> int:
+    """Send a system message to every user's own "Уведомления" chat.
+
+    Raises:
+        HTTPException: 403 if the caller isn't admin/superuser.
+    """
+    await _require_caller_role(caller_id)
+
+    async with httpx.AsyncClient() as client:
+        response = await client.post(
+            f"{settings.communication_url}/internal/broadcast",
+            json={
+                "sender_id": str(caller_id),
+                "body": body,
+                "attachment_file_ids": [str(fid) for fid in attachment_file_ids],
+            },
+        )
+    response.raise_for_status()
+    return response.json()["recipient_count"]
 
 
 async def list_accounts(

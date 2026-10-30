@@ -50,7 +50,19 @@ def mock_identity_service():
         # would call methods on an unconfigured mock, not the one below.
         mock_client_instance.__aenter__.return_value = mock_client_instance
 
-        def _echo_requested_users(url, **kwargs):
+        def _dispatch_get(url, **kwargs):
+            # GET {identity_url}/internal/accounts (broadcast's full-user
+            # enumeration) — defaults to nobody; tests that actually care
+            # about who gets broadcast to override this side_effect
+            # directly, same as any other call here.
+            if url.endswith("/internal/accounts"):
+                return Response(200, json=[], request=Request("GET", url))
+            # GET {identity_url}/internal/users/{id} (single-peer lookup
+            # for a direct chat) — body content is never inspected by the
+            # caller, only the status code (404 means "doesn't exist").
+            if "/internal/users/" in url:
+                return Response(200, json={}, request=Request("GET", url))
+            # GET {identity_url}/users?ids=... (bulk lookup, existing users)
             ids = [value for key, value in kwargs.get("params", []) if key == "ids"]
             return Response(
                 200,
@@ -58,7 +70,7 @@ def mock_identity_service():
                 request=Request("GET", url),
             )
 
-        mock_client_instance.get.side_effect = _echo_requested_users
+        mock_client_instance.get.side_effect = _dispatch_get
 
         # client.post(...) for file-orchestrator's /internal/files/validate:
         # echo back whatever file_ids were asked about as all being valid.
@@ -89,6 +101,17 @@ def create_models():
             await conn.run_sync(Base.metadata.create_all)
 
     asyncio.run(_create())
+
+
+@pytest.fixture
+async def db_session_maker(create_models):
+    """Expose the raw test session factory for tests that need direct DB access.
+
+    Useful for asserting something was actually removed (not just that an
+    HTTP call succeeded), same purpose this fixture serves in the other
+    services' test suites.
+    """
+    yield test_session_maker
 
 
 @pytest.fixture
