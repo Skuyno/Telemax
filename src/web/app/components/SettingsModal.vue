@@ -929,11 +929,17 @@ async function onLogout() {
     flex-direction: column;
     width: 100vw;
     height: 100vh;
+    height: 100dvh;
   }
 
   .settings-nav {
     width: 100%;
+    flex: none;
     border-right: none;
+  }
+
+  .settings-main {
+    min-height: 0;
   }
 
   .settings-nav__head {

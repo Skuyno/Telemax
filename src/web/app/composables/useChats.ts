@@ -152,7 +152,7 @@ export function useChats() {
     const saved = await api<MessageResponse>(`/chats/${chatId}/messages`, {
       method: 'POST',
       // client_msg_id — ключ идемпотентности: повтор запроса не создаст дубль.
-      body: { body: text, client_msg_id: crypto.randomUUID(), attachment_file_ids: attachmentIds },
+      body: { body: text, client_msg_id: randomId(), attachment_file_ids: attachmentIds },
     })
     chatStore.addMessage(toMessage(saved))
   }
