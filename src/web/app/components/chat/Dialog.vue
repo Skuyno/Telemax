@@ -47,6 +47,7 @@ const myInitials = computed(() => {
 })
 
 const isGroup = computed(() => props.chat.type === 'group')
+const isNotifications = computed(() => props.chat.type === 'notifications')
 
 function senderName(senderId: string) {
   return chatStore.profileByUserId[senderId]?.title ?? 'Неизвестный пользователь'
@@ -267,12 +268,14 @@ watch(
       <span class="dialog__avatar">
         <ChatSavedIcon v-if="chat.isSaved" />
         <ChatGroupIcon v-else-if="chat.type === 'group'" />
+        <ChatNotificationsIcon v-else-if="isNotifications" />
         <UserAvatar v-else :url="chat.avatarUrl" :initials="chat.initials" />
         <span v-if="online" class="dialog__online" />
       </span>
       <span class="dialog__ident">
         <span class="dialog__title">{{ chat.title }}</span>
         <span v-if="chat.isSaved" class="dialog__status">заметки для себя</span>
+        <span v-else-if="isNotifications" class="dialog__status">только для чтения</span>
         <span v-else-if="chat.type === 'group'" class="dialog__status">
           {{ memberCountLabel }}
         </span>
@@ -350,7 +353,11 @@ watch(
 
     <p v-if="sendError" class="dialog__error">{{ sendError }}</p>
 
+    <p v-if="isNotifications" class="dialog__readonly">
+      Это системный чат с уведомлениями — отправка сообщений недоступна.
+    </p>
     <ChatComposer
+      v-else
       ref="composer"
       :chat-id="chat.id"
       :editing="editing"
@@ -592,6 +599,17 @@ watch(
   font-family: var(--font-mono);
   font-size: 11px;
   color: var(--color-error);
+}
+
+.dialog__readonly {
+  margin: 0;
+  flex: none;
+  padding: 14px;
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--color-text-muted);
+  border-top: 1px solid rgba(61, 79, 156, 0.6);
 }
 
 @media (max-width: 900px) {

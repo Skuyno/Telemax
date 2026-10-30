@@ -117,3 +117,20 @@ class GroupChat(Base):
 
     chat_id: Mapped[UUID] = mapped_column(ForeignKey("chats.id"), primary_key=True)
     title: Mapped[str] = mapped_column(String(128))
+
+
+class NotificationsChat(Base):
+    """Notifications-chat subtype data: one per-user chat, system-authored only.
+
+    `type="notifications"` on Chat. Unlike DirectChat (keyed by an ordered
+    pair) this is keyed by a single user — each user gets their own private
+    copy, not a chat shared between several users, so a future targeted
+    broadcast (a subset of users, not everyone) needs no schema change.
+    `user_id` is unique: get-or-create relies on this the same way
+    DirectChat's (user_lo, user_hi) uniqueness backs its own get-or-create.
+    """
+
+    __tablename__ = "notifications_chats"
+
+    chat_id: Mapped[UUID] = mapped_column(ForeignKey("chats.id"), unique=True)
+    user_id: Mapped[UUID] = mapped_column(primary_key=True, unique=True)

@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     """Application configuration settings loaded from environment variables."""
 
     identity_url: str = "http://identity:8000"
+    communication_url: str = "http://communication:8000"
 
     model_config = SettingsConfigDict(
         env_file=_find_env_file(),

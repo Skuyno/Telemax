@@ -12,6 +12,10 @@ from fastapi import APIRouter, Depends, Query
 from app.accounts import service as accounts_service
 from app.accounts.schemas import (
     AccountResponse,
+    AdminResetPasswordRequest,
+    BroadcastChatResponse,
+    BroadcastRequest,
+    BroadcastResponse,
     CreateAccountRequest,
     UsernameAvailableResponse,
 )
@@ -57,6 +61,118 @@ async def delete_account(
             the caller can't delete this role, 404 if not found.
     """
     await accounts_service.delete_account(caller_id, account_id)
+
+
+@router.post("/accounts/{account_id}/block")
+async def block_account(
+    account_id: UUID,
+    caller_id: UUID = Depends(get_current_user_id),
+) -> AccountResponse:
+    """Block an account.
+
+    Args:
+        account_id: Id of the account to block.
+        caller_id: User id trusted from the X-User-Id header (set by API Gateway).
+
+    Returns:
+        AccountResponse: The now-blocked account.
+
+    Raises:
+        HTTPException: 400 if targeting the caller's own account, 403 if
+            the caller can't act on this role, 404 if not found.
+    """
+    return await accounts_service.block_account(caller_id, account_id)
+
+
+@router.post("/accounts/{account_id}/unblock")
+async def unblock_account(
+    account_id: UUID,
+    caller_id: UUID = Depends(get_current_user_id),
+) -> AccountResponse:
+    """Unblock an account.
+
+    Args:
+        account_id: Id of the account to unblock.
+        caller_id: User id trusted from the X-User-Id header (set by API Gateway).
+
+    Returns:
+        AccountResponse: The now-unblocked account.
+
+    Raises:
+        HTTPException: 403 if the caller can't act on this role, 404 if
+            not found.
+    """
+    return await accounts_service.unblock_account(caller_id, account_id)
+
+
+@router.post("/accounts/{account_id}/password")
+async def admin_reset_password(
+    account_id: UUID,
+    data: AdminResetPasswordRequest,
+    caller_id: UUID = Depends(get_current_user_id),
+) -> AccountResponse:
+    """Reset a target account's password.
+
+    Args:
+        account_id: Id of the account whose password to reset.
+        data: The new password.
+        caller_id: User id trusted from the X-User-Id header (set by API Gateway).
+
+    Returns:
+        AccountResponse: The account whose password was reset.
+
+    Raises:
+        HTTPException: 400 if targeting the caller's own account, 403 if
+            the caller can't act on this role, 404 if not found.
+    """
+    return await accounts_service.admin_reset_password(
+        caller_id, account_id, data.new_password
+    )
+
+
+@router.post("/broadcast/chat")
+async def get_broadcast_chat(
+    caller_id: UUID = Depends(get_current_user_id),
+) -> BroadcastChatResponse:
+    """Ensure the caller's own "Уведомления" chat exists.
+
+    Call this before uploading attachments for a broadcast — the returned
+    chat_id is where the normal file-upload flow should target them.
+
+    Args:
+        caller_id: User id trusted from the X-User-Id header (set by API Gateway).
+
+    Returns:
+        BroadcastChatResponse: The chat's id.
+
+    Raises:
+        HTTPException: 403 if the caller isn't admin/superuser.
+    """
+    chat_id = await accounts_service.get_broadcast_chat(caller_id)
+    return BroadcastChatResponse(chat_id=chat_id)
+
+
+@router.post("/broadcast")
+async def broadcast(
+    data: BroadcastRequest,
+    caller_id: UUID = Depends(get_current_user_id),
+) -> BroadcastResponse:
+    """Send a system message to every user's own "Уведомления" chat.
+
+    Args:
+        data: Message text and optional already-uploaded attachment ids.
+        caller_id: User id trusted from the X-User-Id header (set by API Gateway).
+
+    Returns:
+        BroadcastResponse: How many users the message was sent to.
+
+    Raises:
+        HTTPException: 403 if the caller isn't admin/superuser.
+    """
+    recipient_count = await accounts_service.broadcast(
+        caller_id, data.body, data.attachment_file_ids
+    )
+    return BroadcastResponse(recipient_count=recipient_count)
 
 
 @router.get("/accounts/username-available")

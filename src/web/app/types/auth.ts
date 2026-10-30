@@ -8,6 +8,7 @@ export interface User {
   avatarUrl: string | null
   createdAt: string
   role: Role
+  blocked: boolean
 }
 
 export interface AuthTokens {
@@ -31,4 +32,5 @@ export interface UserResponse {
   avatar_url: string | null
   created_at: string
   role: Role
+  blocked: boolean
 }

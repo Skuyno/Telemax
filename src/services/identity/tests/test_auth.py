@@ -1,6 +1,7 @@
 """Tests for the register and login endpoints."""
 
 from unittest.mock import patch
+from uuid import uuid4
 
 import jwt
 from httpx import AsyncClient
@@ -111,3 +112,20 @@ async def test_login_unknown_user(client: AsyncClient):
         },
     )
     assert resp.status_code == 401
+
+
+async def test_login_blocked_account_is_403(client: AsyncClient):
+    """Correct credentials for a blocked account still can't log in."""
+    resp = await client.post(
+        "/auth/register", json={"username": "aboba", "password": "abobas123"}
+    )
+    user_id = resp.json()["id"]
+
+    await client.post(
+        f"/internal/accounts/{user_id}/block", params={"caller_id": str(uuid4())}
+    )
+
+    resp = await client.post(
+        "/auth/login", json={"username": "aboba", "password": "abobas123"}
+    )
+    assert resp.status_code == 403

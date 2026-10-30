@@ -28,7 +28,13 @@ test_session_maker = async_sessionmaker(test_engine, expire_on_commit=False)
 
 @pytest.fixture(autouse=True)
 def mock_communication_service():
-    """Mock the membership check made against communication's internal API."""
+    """Mock calls made against communication's internal API.
+
+    Covers the upload-time membership check, the member-ids lookup (for
+    progress events), and the message-based file-access check used by
+    downloads/signed links. Permissive by default — tests that need a 403
+    can override `.get.side_effect` directly, same pattern as elsewhere.
+    """
     with patch("app.files.service.httpx.AsyncClient") as mock_client_class:
         mock_client_instance = AsyncMock()
         mock_client_class.return_value = mock_client_instance
@@ -39,6 +45,8 @@ def mock_communication_service():
             response.raise_for_status = lambda: None
             if url.endswith("/members"):
                 response.json = lambda: {"user_ids": []}
+            elif "/access/" in url:
+                response.json = lambda: {"authorized": True}
             else:
                 response.json = lambda: {"is_member": True}
             return response

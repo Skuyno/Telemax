@@ -76,15 +76,22 @@ export function useChats() {
       chatStore.setChats(
         chats.map((chat, index): Chat => {
           const isGroup = chat.type === 'group'
+          const isNotifications = chat.type === 'notifications'
           const peer = userById.get(peerIds[index]!)
-          const isSaved = !isGroup && peerIds[index] === me
+          // A notifications chat also has exactly one member (yourself),
+          // same shape as a self-chat ("Избранное") — type must win over
+          // that heuristic, checked first, or every notifications chat
+          // would be mislabeled as your saved-messages chat.
+          const isSaved = !isGroup && !isNotifications && peerIds[index] === me
           const title = isGroup
             ? (chat.title ?? 'Группа')
-            : isSaved
-              ? SAVED_TITLE
-              : peer
-                ? displayName(peer)
-                : 'Неизвестный пользователь'
+            : isNotifications
+              ? (chat.title ?? 'Уведомления')
+              : isSaved
+                ? SAVED_TITLE
+                : peer
+                  ? displayName(peer)
+                  : 'Неизвестный пользователь'
           const last = chat.last_message
           return {
             id: chat.id,
@@ -92,7 +99,7 @@ export function useChats() {
             title,
             initials: toInitials(title),
             peerId: peerIds[index]!,
-            avatarUrl: isGroup || isSaved ? null : (peer?.avatar_url ?? null),
+            avatarUrl: isGroup || isSaved || isNotifications ? null : (peer?.avatar_url ?? null),
             unreadCount: chat.unread_count,
             memberCount: isGroup ? members[index]!.length : undefined,
             isSaved,

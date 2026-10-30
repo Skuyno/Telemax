@@ -25,6 +25,7 @@ const preview = computed(() => {
     <span class="row__avatar">
       <ChatSavedIcon v-if="chat.isSaved" />
       <ChatGroupIcon v-else-if="chat.type === 'group'" />
+      <ChatNotificationsIcon v-else-if="chat.type === 'notifications'" />
       <UserAvatar v-else :url="chat.avatarUrl" :initials="chat.initials" />
       <span v-if="online" class="row__online" aria-label="в сети" />
     </span>

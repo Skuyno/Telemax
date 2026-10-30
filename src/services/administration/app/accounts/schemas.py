@@ -32,9 +32,40 @@ class AccountResponse(BaseModel):
     avatar_url: str | None
     created_at: datetime
     role: str
+    blocked: bool
 
 
 class UsernameAvailableResponse(BaseModel):
     """Whether a username is free to create an account with."""
 
     available: bool
+
+
+class AdminResetPasswordRequest(BaseModel):
+    """Request to reset a target account's password."""
+
+    new_password: str = Field(min_length=8, max_length=256)
+
+
+class BroadcastChatResponse(BaseModel):
+    """Id of the caller's own "Уведомления" chat, for uploading attachments."""
+
+    chat_id: UUID
+
+
+class BroadcastRequest(BaseModel):
+    """Request to broadcast a system message to users' "Уведомления" chats.
+
+    Always targets everyone for now — a future targeted broadcast (chosen
+    recipients) only needs a new optional field here, communication
+    already supports it.
+    """
+
+    body: str = Field(min_length=1)
+    attachment_file_ids: list[UUID] = Field(default_factory=list)
+
+
+class BroadcastResponse(BaseModel):
+    """How many users a broadcast was sent to."""
+
+    recipient_count: int

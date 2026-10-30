@@ -57,6 +57,7 @@ class UserResponse(BaseModel):
     avatar_url: str | None
     created_at: datetime
     role: str
+    blocked: bool
 
 
 class UpdateProfileRequest(BaseModel):
@@ -117,6 +118,17 @@ class CreateAccountRequest(BaseModel):
     username: str = Field(min_length=3, max_length=32)
     password: str = Field(min_length=8, max_length=256)
     role: str = Field(pattern="^(admin|user)$")
+
+
+class AdminResetPasswordRequest(BaseModel):
+    """Request to reset a target account's password on an admin's behalf.
+
+    Distinct from ResetPasswordRequest: that one is self-service (the
+    caller resets their own password); this one is an admin-management
+    action targeting someone else's account.
+    """
+
+    new_password: str = Field(min_length=8, max_length=256)
 
 
 class UsernameAvailableResponse(BaseModel):
