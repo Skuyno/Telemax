@@ -1,6 +1,8 @@
 import type { Attachment, FileResponse } from '~/types/chat'
 
 const attachmentCache = new Map<string, Promise<Attachment | null>>()
+const linkCache = new Map<string, { url: string; expiresAt: number }>()
+const LINK_REFRESH_MARGIN_MS = 30_000
 
 function decodeName(raw: string): string {
   try {
@@ -71,6 +73,49 @@ export function useFiles() {
     })
   }
 
+  async function getStreamUrl(fileId: string): Promise<string> {
+    const cached = linkCache.get(fileId)
+    if (cached && cached.expiresAt > Date.now() + LINK_REFRESH_MARGIN_MS) return cached.url
+
+    const link = await api<{ url: string; expires_in: number }>(`/files/${fileId}/link`, {
+      method: 'POST',
+    })
+    const url = `${config.public.apiBase}${link.url}`
+    linkCache.set(fileId, { url, expiresAt: Date.now() + link.expires_in * 1000 })
+    return url
+  }
+
+  function getAttachmentInfo(fileId: string): Promise<Attachment | null> {
+    let pending = attachmentCache.get(fileId)
+    if (!pending) {
+      pending = probeAttachment(fileId).then((info) => {
+        if (!info) attachmentCache.delete(fileId)
+        return info
+      })
+      attachmentCache.set(fileId, pending)
+    }
+    return pending
+  }
+
+  async function probeAttachment(fileId: string): Promise<Attachment | null> {
+    try {
+      const url = await getStreamUrl(fileId)
+      const probe = await fetch(url, { headers: { Range: 'bytes=0-0' } })
+      if (!probe.ok && probe.status !== 206) return null
+
+      const total = probe.headers.get('content-range')?.split('/')[1]
+      return {
+        id: fileId,
+        name: nameFromDisposition(probe.headers.get('content-disposition')),
+        type: probe.headers.get('content-type') ?? 'application/octet-stream',
+        size: total ? Number(total) : 0,
+        url,
+      }
+    } catch {
+      return null
+    }
+  }
+
   function getAttachment(fileId: string): Promise<Attachment | null> {
     let pending = attachmentCache.get(fileId)
     if (!pending) {
@@ -95,5 +140,10 @@ export function useFiles() {
     return pending
   }
 
-  return { uploadFile, getAttachment }
+  function refreshStreamUrl(fileId: string): Promise<string> {
+    linkCache.delete(fileId)
+    return getStreamUrl(fileId)
+  }
+
+  return { uploadFile, getAttachment, getAttachmentInfo, getStreamUrl, refreshStreamUrl }
 }

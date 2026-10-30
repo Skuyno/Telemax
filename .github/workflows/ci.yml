@@ -154,6 +154,25 @@ jobs:
         working-directory: src/services/ws-gateway
         run: go vet ./...
 
+  test-install:
+    # No Postgres, no Docker-in-Docker needed: install_service's own tests
+    # mock subprocess/socket/urlopen throughout. This also doubles as the
+    # "validate every install.yml" check (tests/test_real_manifests.py runs
+    # discover_manifests against the real checked-out repo, not a fixture),
+    # so a new service's broken manifest fails here before a live install.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        working-directory: src/services/install
+        run: pip install -r requirements.txt pytest pytest-asyncio httpx
+      - name: Run tests
+        working-directory: src/services/install
+        run: pytest -q
+
   deploy:
     # Only after every check passes, and only for a dev -> main merge — not
     # a direct push to main, not a push to dev, not a PR run. GitHub's

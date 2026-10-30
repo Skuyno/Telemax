@@ -1,0 +1,57 @@
+# Временный конфиг на время выпуска сертификата: install_service пишет это
+# в nginx.conf ПОСЛЕ того, как домен указан и DNS-проверка пройдена, но ДО
+# того, как сертификат реально выпущен. 443-блока здесь нет сознательно —
+# ssl_certificate ссылался бы на ещё не существующий файл, а это не
+# "сервис не ответит на 443", а "nginx вообще не запустится" (он проверяет
+# существование сертификата при старте). Сайт в этот короткий промежуток
+# продолжает работать по обычному HTTP — ничего не ломается и не редиректит
+# в https, который ещё не готов.
+#
+# После успешного certbot certonly это заменяется на финальный конфиг,
+# отрендеренный из nginx.conf.example (см. install.yml рядом).
+server {
+    listen 80;
+    server_name _;
+
+    # Certbot кладёт сюда challenge-файлы при выпуске сертификата
+    # (webroot-режим). Том общий между nginx и одноразовым certbot-контейнером.
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    client_max_body_size 0;
+
+    resolver 127.0.0.11 valid=10s;
+
+    location /api/ {
+        set $api_upstream api-gateway:8000;
+        rewrite ^/api/(.*)$ /$1 break;
+        proxy_pass http://$api_upstream;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location /ws {
+        set $ws_upstream ws-gateway:4333;
+        proxy_pass http://$ws_upstream;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_read_timeout 3600s;
+    }
+
+    location / {
+        set $web_upstream web:3000;
+        proxy_pass http://$web_upstream;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}

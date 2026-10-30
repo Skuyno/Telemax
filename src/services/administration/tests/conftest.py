@@ -46,12 +46,23 @@ def _account_payload(user_id: str, account: dict) -> dict:
         "avatar_url": None,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "role": account["role"],
+        "blocked": account.get("blocked", False),
     }
 
 
+@pytest.fixture
+def communication_calls():
+    """Records of calls made to the fake communication backend, for assertions."""
+    return {"offboarded": [], "broadcasts": []}
+
+
 @pytest.fixture(autouse=True)
-def mock_identity(identity_db):
-    """Mock outbound httpx.AsyncClient calls to identity's /internal/... API."""
+def mock_identity(identity_db, communication_calls):
+    """Mock outbound httpx.AsyncClient calls to identity and communication.
+
+    Both are faked here since administration's service module calls both
+    through the same patched httpx.AsyncClient.
+    """
 
     async def fake_get(url, *args, **kwargs):
         if "/internal/users/" in url:
@@ -72,13 +83,65 @@ def mock_identity(identity_db):
 
         raise AssertionError(f"unexpected GET {url}")
 
-    async def fake_post(url, *args, json=None, **kwargs):
-        assert url.endswith("/internal/accounts")
-        if any(a["username"] == json["username"] for a in identity_db.values()):
-            return _FakeResponse(409)
-        user_id = str(uuid4())
-        identity_db[user_id] = {"username": json["username"], "role": json["role"]}
-        return _FakeResponse(201, _account_payload(user_id, identity_db[user_id]))
+    async def fake_post(url, *args, json=None, params=None, **kwargs):
+        if url.endswith("/internal/accounts"):
+            if any(a["username"] == json["username"] for a in identity_db.values()):
+                return _FakeResponse(409)
+            user_id = str(uuid4())
+            identity_db[user_id] = {"username": json["username"], "role": json["role"]}
+            return _FakeResponse(201, _account_payload(user_id, identity_db[user_id]))
+
+        if url.endswith("/block"):
+            target_id = url.rsplit("/", 2)[-2]
+            caller_id = params["caller_id"]
+            if target_id == caller_id:
+                return _FakeResponse(400)
+            account = identity_db.get(target_id)
+            if account is None:
+                return _FakeResponse(404)
+            if account["role"] == "superuser":
+                return _FakeResponse(403)
+            account["blocked"] = True
+            return _FakeResponse(200, _account_payload(target_id, account))
+
+        if url.endswith("/unblock"):
+            target_id = url.rsplit("/", 2)[-2]
+            account = identity_db.get(target_id)
+            if account is None:
+                return _FakeResponse(404)
+            account["blocked"] = False
+            return _FakeResponse(200, _account_payload(target_id, account))
+
+        if url.endswith("/password"):
+            target_id = url.rsplit("/", 2)[-2]
+            caller_id = params["caller_id"]
+            if target_id == caller_id:
+                return _FakeResponse(400)
+            account = identity_db.get(target_id)
+            if account is None:
+                return _FakeResponse(404)
+            if account["role"] == "superuser":
+                return _FakeResponse(403)
+            return _FakeResponse(200, _account_payload(target_id, account))
+
+        if url.endswith("/offboard"):
+            target_id = url.rsplit("/", 2)[-2]
+            communication_calls["offboarded"].append(target_id)
+            return _FakeResponse(204)
+
+        if url.endswith("/notifications-chat"):
+            return _FakeResponse(200, {"chat_id": str(uuid4())})
+
+        if url.endswith("/broadcast"):
+            communication_calls["broadcasts"].append(json)
+            recipient_count = (
+                len(json["user_ids"])
+                if json.get("user_ids") is not None
+                else len(identity_db)
+            )
+            return _FakeResponse(200, {"recipient_count": recipient_count})
+
+        raise AssertionError(f"unexpected POST {url}")
 
     async def fake_delete(url, *args, params=None, **kwargs):
         target_id = url.rsplit("/", 1)[-1]
@@ -112,6 +175,7 @@ def seed_account(identity_db):
         identity_db[user_id] = {
             "username": username or f"{role}-{uuid4().hex[:8]}",
             "role": role,
+            "blocked": False,
         }
         return user_id
 

@@ -237,9 +237,7 @@ onBeforeUnmount(() => {
         <p v-else-if="chatStore.chatsError" class="sidebar__empty is-error">
           {{ chatStore.chatsError }}
         </p>
-        <p v-else-if="chatStore.isLoadingChats && !chatStore.chats.length" class="sidebar__empty">
-          Загрузка…
-        </p>
+        <ChatSkeletonList v-else-if="chatStore.isLoadingChats && !chatStore.chats.length" />
         <p v-else-if="!chatStore.chats.length" class="sidebar__empty">
           Чатов пока нет. Найдите собеседника по @username.
         </p>

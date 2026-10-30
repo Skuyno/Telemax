@@ -1,7 +1,8 @@
 import { defineStore } from 'pinia'
-import type { Chat, Message, UserSearchResult } from '~/types/chat'
+import type { Chat, ChatProfile, Message, UserSearchResult } from '~/types/chat'
 
 const TYPING_TTL_MS = 4000
+const ACTIVE_CHAT_KEY = 'telemax.active-chat'
 
 function lastActivity(chat: Chat): string {
   return chat.lastMessage?.createdAt ?? ''
@@ -15,7 +16,7 @@ export const useChatStore = defineStore('chat', {
     hasMoreByChatId: {} as Record<string, boolean>,
     activeChatId: null as string | null,
     search: '',
-    isLoadingChats: false,
+    isLoadingChats: true,
     chatsError: '',
     /** Люди из POST /users/search по текущей строке поиска. */
     userResults: [] as UserSearchResult[],
@@ -23,7 +24,9 @@ export const useChatStore = defineStore('chat', {
     /** Растёт при «Новый чат» — сайдбар по нему ставит фокус в поиск. */
     searchFocusTick: 0,
     onlineByUserId: {} as Record<string, boolean>,
+    profileByUserId: {} as Record<string, ChatProfile>,
     typingUntilByChatId: {} as Record<string, number>,
+    typingUserIdByChatId: {} as Record<string, string>,
     peerReadMessageIdByChatId: {} as Record<string, string>,
     now: Date.now(),
   }),
@@ -81,6 +84,20 @@ export const useChatStore = defineStore('chat', {
 
     setActiveChat(chatId: string | null) {
       this.activeChatId = chatId
+      if (import.meta.client) {
+        if (chatId) localStorage.setItem(ACTIVE_CHAT_KEY, chatId)
+        else localStorage.removeItem(ACTIVE_CHAT_KEY)
+      }
+    },
+
+    hasSavedChat(): boolean {
+      return import.meta.client && Boolean(localStorage.getItem(ACTIVE_CHAT_KEY))
+    },
+
+    restoreActiveChat() {
+      if (!import.meta.client || this.activeChatId) return
+      const saved = localStorage.getItem(ACTIVE_CHAT_KEY)
+      if (saved && this.chats.some((chat) => chat.id === saved)) this.activeChatId = saved
     },
 
     requestSearchFocus() {
@@ -91,18 +108,36 @@ export const useChatStore = defineStore('chat', {
       this.onlineByUserId[userId] = online
     },
 
-    markTyping(chatId: string) {
+    markTyping(chatId: string, userId?: string) {
       this.typingUntilByChatId[chatId] = Date.now() + TYPING_TTL_MS
+      if (userId) this.typingUserIdByChatId[chatId] = userId
       this.now = Date.now()
     },
 
     stopTyping(chatId: string) {
       delete this.typingUntilByChatId[chatId]
+      delete this.typingUserIdByChatId[chatId]
+    },
+
+    setProfiles(profiles: ChatProfile[]) {
+      for (const profile of profiles) this.profileByUserId[profile.id] = profile
     },
 
     setPeerRead(chatId: string, messageId: string) {
       const current = this.peerReadMessageIdByChatId[chatId]
       if (!current || messageId > current) this.peerReadMessageIdByChatId[chatId] = messageId
+    },
+
+    patchChat(chatId: string, patch: Partial<Chat>) {
+      const chat = this.chats.find((item) => item.id === chatId)
+      if (chat) Object.assign(chat, patch)
+    },
+
+    removeChat(chatId: string) {
+      this.chats = this.chats.filter((item) => item.id !== chatId)
+      delete this.messagesByChatId[chatId]
+      delete this.hasMoreByChatId[chatId]
+      if (this.activeChatId === chatId) this.setActiveChat(null)
     },
 
     clearUnread(chatId: string) {

@@ -3,7 +3,7 @@ import type { Attachment } from '~/types/chat'
 
 const props = defineProps<{ fileId: string; own: boolean }>()
 
-const { getAttachment } = useFiles()
+const { getAttachmentInfo, refreshStreamUrl } = useFiles()
 
 const attachment = ref<Attachment | null>(null)
 const failed = ref(false)
@@ -13,7 +13,7 @@ watch(
   async (id) => {
     attachment.value = null
     failed.value = false
-    const loaded = await getAttachment(id)
+    const loaded = await getAttachmentInfo(id)
     if (props.fileId !== id) return
     attachment.value = loaded
     failed.value = !loaded
@@ -21,7 +21,28 @@ watch(
   { immediate: true },
 )
 
+const duration = ref('')
+
+function onMetadata(event: Event) {
+  const seconds = (event.target as HTMLVideoElement).duration
+  if (!Number.isFinite(seconds)) return
+
+  const total = Math.round(seconds)
+  const minutes = Math.floor(total / 60)
+  duration.value = `${minutes}:${String(total % 60).padStart(2, '0')}`
+}
+
+async function onSourceError() {
+  const current = attachment.value
+  if (!current || current.url.startsWith('blob:')) return
+
+  const url = await refreshStreamUrl(props.fileId).catch(() => '')
+  if (url && attachment.value) attachment.value = { ...attachment.value, url }
+}
+
 const isImage = computed(() => attachment.value?.type.startsWith('image/') ?? false)
+const isVideo = computed(() => attachment.value?.type.startsWith('video/') ?? false)
+const isAudio = computed(() => attachment.value?.type.startsWith('audio/') ?? false)
 
 const viewerOpen = ref(false)
 
@@ -51,8 +72,47 @@ function formatSize(bytes: number): string {
     aria-label="Открыть картинку"
     @click="viewerOpen = true"
   >
-    <img class="media__img" :src="attachment.url" :alt="attachment.name" />
+    <img
+      class="media__img"
+      :src="attachment.url"
+      :alt="attachment.name"
+      @error="onSourceError"
+    />
   </button>
+
+  <button
+    v-else-if="attachment && isVideo"
+    type="button"
+    class="media media--video"
+    aria-label="Смотреть видео"
+    @click="viewerOpen = true"
+  >
+    <video
+      class="media__video"
+      :src="attachment.url"
+      preload="metadata"
+      muted
+      playsinline
+      @loadedmetadata="onMetadata"
+      @error="onSourceError"
+    />
+    <span class="media__play" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="currentColor">
+        <path d="M8 5.5v13l11-6.5z" />
+      </svg>
+    </span>
+    <span v-if="duration" class="media__badge">{{ duration }}</span>
+  </button>
+
+  <ChatAudioPlayer
+    v-else-if="attachment && isAudio"
+    :file-id="fileId"
+    :src="attachment.url"
+    :name="attachment.name"
+    :size="attachment.size"
+    :own="own"
+    @error="onSourceError"
+  />
 
   <a
     v-else-if="attachment"
@@ -69,7 +129,7 @@ function formatSize(bytes: number): string {
     </span>
     <span class="file__text">
       <span class="file__name">{{ attachment.name }}</span>
-      <span class="file__size">{{ formatSize(attachment.size) }}</span>
+      <span v-if="attachment.size" class="file__size">{{ formatSize(attachment.size) }}</span>
     </span>
   </a>
 
@@ -77,7 +137,7 @@ function formatSize(bytes: number): string {
     Файл недоступен
   </span>
 
-  <span v-else class="file is-loading" :class="{ 'is-own': own }">Загружаем файл…</span>
+  <span v-else class="loading" :class="{ 'is-own': own }" aria-label="Загружаем файл" />
 
   <Teleport to="body">
     <Transition name="viewer">
@@ -85,12 +145,30 @@ function formatSize(bytes: number): string {
         v-if="viewerOpen && attachment"
         class="viewer"
         role="dialog"
-        aria-label="Просмотр картинки"
+        :aria-label="isVideo ? 'Просмотр видео' : 'Просмотр картинки'"
         @click.self="viewerOpen = false"
       >
-        <img class="viewer__img" :src="attachment.url" :alt="attachment.name" />
+        <ChatVideoPlayer
+          v-if="isVideo"
+          :src="attachment.url"
+          :title="attachment.name === 'Файл' ? undefined : attachment.name"
+          @error="onSourceError"
+        />
+        <img v-else class="viewer__img" :src="attachment.url" :alt="attachment.name" />
         <div class="viewer__bar">
-          <a class="viewer__btn" :href="attachment.url" :download="attachment.name">Скачать</a>
+          <a
+            class="viewer__btn"
+            :href="attachment.url"
+            :download="attachment.name"
+            aria-label="Скачать"
+            title="Скачать"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <path d="M12 4v11" />
+              <path d="M7.5 11.5 12 16l4.5-4.5" />
+              <path d="M5 19h14" />
+            </svg>
+          </a>
           <button
             type="button"
             class="viewer__btn"
@@ -111,7 +189,7 @@ function formatSize(bytes: number): string {
 <style scoped>
 .media {
   display: block;
-  max-width: 280px;
+  max-width: 300px;
   padding: 0;
   overflow: hidden;
   background: none;
@@ -132,13 +210,19 @@ function formatSize(bytes: number): string {
   cursor: zoom-out;
 }
 
-.viewer__img {
+.viewer__img,
+.viewer__video {
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
   border-radius: 10px;
   box-shadow: var(--shadow-hard);
   cursor: default;
+}
+
+.viewer__video {
+  width: min(1080px, 100%);
+  background: var(--color-ink);
 }
 
 .viewer__bar {
@@ -153,12 +237,12 @@ function formatSize(bytes: number): string {
   display: flex;
   align-items: center;
   justify-content: center;
-  min-width: 40px;
-  height: 40px;
-  padding: 0 14px;
-  background: var(--color-lift);
-  border: 1px solid var(--color-line);
-  border-radius: 10px;
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  background: rgba(22, 34, 90, 0.85);
+  border: 1px solid rgba(61, 79, 156, 0.75);
+  border-radius: 999px;
   font-family: var(--font-mono);
   font-size: 12px;
   color: var(--color-text);
@@ -193,6 +277,57 @@ function formatSize(bytes: number): string {
   object-fit: cover;
 }
 
+.media--video {
+  position: relative;
+  width: 300px;
+  background: var(--color-ink);
+}
+
+.media__video {
+  display: block;
+  width: 100%;
+  height: 180px;
+  object-fit: cover;
+  pointer-events: none;
+}
+
+.media__play {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: grid;
+  place-items: center;
+  width: 54px;
+  height: 54px;
+  background: rgba(255, 204, 46, 0.92);
+  border-radius: 50%;
+  box-shadow: 0 0 24px rgba(7, 11, 28, 0.55);
+  color: var(--color-ink);
+  transform: translate(-50%, -50%);
+  transition: transform 0.15s ease;
+}
+
+.media--video:hover .media__play {
+  transform: translate(-50%, -50%) scale(1.08);
+}
+
+.media__play svg {
+  width: 26px;
+  height: 26px;
+}
+
+.media__badge {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  padding: 3px 8px;
+  background: rgba(7, 11, 28, 0.72);
+  border-radius: 999px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-text);
+}
+
 .file {
   display: flex;
   align-items: center;
@@ -213,14 +348,53 @@ function formatSize(bytes: number): string {
   color: var(--color-ink);
 }
 
-.file.is-loading,
+.loading {
+  display: block;
+  width: 300px;
+  height: 180px;
+  border-radius: var(--chat-radius);
+  background: linear-gradient(
+    90deg,
+    rgba(230, 236, 255, 0.07) 25%,
+    rgba(230, 236, 255, 0.16) 50%,
+    rgba(230, 236, 255, 0.07) 75%
+  );
+  background-size: 300% 100%;
+  animation: attachment-shimmer 1.3s ease-in-out infinite;
+}
+
+.loading.is-own {
+  background: linear-gradient(
+    90deg,
+    rgba(11, 18, 54, 0.1) 25%,
+    rgba(11, 18, 54, 0.22) 50%,
+    rgba(11, 18, 54, 0.1) 75%
+  );
+  background-size: 300% 100%;
+}
+
+@keyframes attachment-shimmer {
+  from {
+    background-position: 150% 0;
+  }
+
+  to {
+    background-position: -150% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loading {
+    animation: none;
+  }
+}
+
 .file.is-broken {
   font-family: var(--font-mono);
   font-size: 11px;
   color: var(--color-text-dim);
 }
 
-.file.is-own.is-loading,
 .file.is-own.is-broken {
   color: var(--color-ink);
   opacity: 0.7;

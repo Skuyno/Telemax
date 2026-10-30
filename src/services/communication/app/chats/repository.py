@@ -17,7 +17,71 @@ from app.chats.models import (
     GroupChat,
     Message,
     MessageAttachment,
+    NotificationsChat,
 )
+
+
+async def get_chat(db: AsyncSession, chat_id: UUID) -> Chat | None:
+    """Fetch a chat by id, with no membership check.
+
+    Args:
+        db: Async database session.
+        chat_id: Id of the chat.
+
+    Returns:
+        Chat | None: The chat if it exists, otherwise None.
+    """
+    return await db.get(Chat, chat_id)
+
+
+async def get_notifications_chat(db: AsyncSession, user_id: UUID) -> Chat | None:
+    """Look up a user's personal "Уведомления" chat, if it exists yet.
+
+    Args:
+        db: Async database session.
+        user_id: Id of the user.
+
+    Returns:
+        Chat | None: The chat if found, otherwise None.
+    """
+    result = await db.execute(
+        select(Chat)
+        .join(NotificationsChat, Chat.id == NotificationsChat.chat_id)
+        .where(NotificationsChat.user_id == user_id)
+    )
+    return result.scalar_one_or_none()
+
+
+async def create_notifications_chat(db: AsyncSession, user_id: UUID) -> Chat:
+    """Create a user's personal "Уведомления" chat and its membership row.
+
+    Args:
+        db: Async database session.
+        user_id: Id of the user this chat belongs to.
+
+    Returns:
+        Chat: The newly created chat.
+
+    Raises:
+        IntegrityError: If this user already has a notifications chat
+            (`NotificationsChat.user_id` is unique) — the caller retries
+            with `get_notifications_chat`, same pattern as direct chats.
+    """
+    chat = Chat(type="notifications", created_by=user_id)
+    db.add(chat)
+    await db.flush()
+    db.add_all(
+        [
+            ChatMember(chat_id=chat.id, user_id=user_id),
+            NotificationsChat(chat_id=chat.id, user_id=user_id),
+        ]
+    )
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise
+    return chat
 
 
 async def get_direct_chat(db: AsyncSession, user_a: UUID, user_b: UUID) -> Chat | None:
@@ -326,6 +390,40 @@ async def get_attachment_ids_bulk(
     for row in result.scalars().all():
         mapping.setdefault(row.message_id, []).append(row.file_id)
     return mapping
+
+
+async def user_can_access_file(db: AsyncSession, file_id: UUID, user_id: UUID) -> bool:
+    """Check whether a user can see some message that attaches this file.
+
+    This is the authorization rule file-orchestrator uses for downloads —
+    deliberately "a message you can see attaches it", not "you were a
+    member of the chat it was originally uploaded into": a broadcast
+    attaches the same file_id to a different message in every recipient's
+    own chat, so only the message-based check authorizes all of them.
+
+    Args:
+        db: Async database session.
+        file_id: Id of the file (owned by file-orchestrator).
+        user_id: Id of the user requesting access.
+
+    Returns:
+        bool: True if some chat the user belongs to has a message
+            attaching this file.
+    """
+    result = await db.execute(
+        select(
+            exists(
+                select(MessageAttachment.file_id)
+                .join(Message, Message.id == MessageAttachment.message_id)
+                .join(ChatMember, ChatMember.chat_id == Message.chat_id)
+                .where(
+                    MessageAttachment.file_id == file_id,
+                    ChatMember.user_id == user_id,
+                )
+            )
+        )
+    )
+    return result.scalar()
 
 
 async def get_message(
@@ -639,6 +737,134 @@ async def remove_chat_member(
             ChatMember.chat_id == chat_id,
             ChatMember.user_id == user_id,
         )
+    )
+    await db.commit()
+
+
+async def get_direct_chat_ids_for_user(db: AsyncSession, user_id: UUID) -> list[UUID]:
+    """List every direct (1:1) chat this user is part of.
+
+    Args:
+        db: Async database session.
+        user_id: Id of the user.
+
+    Returns:
+        list[UUID]: Ids of the user's direct chats.
+    """
+    result = await db.execute(
+        select(DirectChat.chat_id).where(
+            or_(DirectChat.user_lo == user_id, DirectChat.user_hi == user_id)
+        )
+    )
+    return list(result.scalars().all())
+
+
+async def get_other_direct_chat_member(
+    db: AsyncSession, chat_id: UUID, user_id: UUID
+) -> UUID | None:
+    """Find the other participant of a direct chat, if any (self-chats have none).
+
+    Args:
+        db: Async database session.
+        chat_id: Id of the direct chat.
+        user_id: Id of the user to exclude.
+
+    Returns:
+        UUID | None: The other member's id, or None for a self-chat.
+    """
+    result = await db.execute(
+        select(ChatMember.user_id).where(
+            ChatMember.chat_id == chat_id, ChatMember.user_id != user_id
+        )
+    )
+    return result.scalar_one_or_none()
+
+
+async def delete_chats(db: AsyncSession, chat_ids: Sequence[UUID]) -> None:
+    """Hard-delete chats and everything under them.
+
+    Removes messages, attachment links, read states, and direct/group
+    subtype rows too. No `ON DELETE CASCADE` is configured on these
+    foreign keys, so children are removed first, in dependency order.
+
+    Args:
+        db: Async database session.
+        chat_ids: Ids of the chats to delete entirely.
+    """
+    if not chat_ids:
+        return
+
+    message_ids = select(Message.id).where(Message.chat_id.in_(chat_ids))
+    await db.execute(
+        delete(MessageAttachment).where(MessageAttachment.message_id.in_(message_ids))
+    )
+    await db.execute(delete(ChatReadState).where(ChatReadState.chat_id.in_(chat_ids)))
+    await db.execute(delete(Message).where(Message.chat_id.in_(chat_ids)))
+    await db.execute(delete(ChatMember).where(ChatMember.chat_id.in_(chat_ids)))
+    await db.execute(delete(DirectChat).where(DirectChat.chat_id.in_(chat_ids)))
+    await db.execute(delete(GroupChat).where(GroupChat.chat_id.in_(chat_ids)))
+    await db.execute(delete(Chat).where(Chat.id.in_(chat_ids)))
+    await db.commit()
+
+
+async def get_group_memberships_for_user(
+    db: AsyncSession, user_id: UUID
+) -> list[tuple[UUID, str]]:
+    """List (chat_id, role) for every group chat this user belongs to.
+
+    Args:
+        db: Async database session.
+        user_id: Id of the user.
+
+    Returns:
+        list[tuple[UUID, str]]: Group chat id paired with this user's role
+            in it ("owner" or "member").
+    """
+    result = await db.execute(
+        select(ChatMember.chat_id, ChatMember.role)
+        .join(Chat, Chat.id == ChatMember.chat_id)
+        .where(ChatMember.user_id == user_id, Chat.type == "group")
+    )
+    return list(result.all())
+
+
+async def get_oldest_other_member(
+    db: AsyncSession, chat_id: UUID, exclude_user_id: UUID
+) -> UUID | None:
+    """Find the longest-tenured remaining member of a group, if any.
+
+    Args:
+        db: Async database session.
+        chat_id: Id of the group chat.
+        exclude_user_id: The departing member, never returned.
+
+    Returns:
+        UUID | None: The oldest other member's id, or None if they were the
+            only one left.
+    """
+    result = await db.execute(
+        select(ChatMember.user_id)
+        .where(ChatMember.chat_id == chat_id, ChatMember.user_id != exclude_user_id)
+        .order_by(ChatMember.joined_at)
+        .limit(1)
+    )
+    return result.scalar_one_or_none()
+
+
+async def transfer_group_ownership(
+    db: AsyncSession, chat_id: UUID, new_owner_id: UUID
+) -> None:
+    """Make another existing member the group's owner.
+
+    Args:
+        db: Async database session.
+        chat_id: Id of the group chat.
+        new_owner_id: Id of the member becoming the new owner.
+    """
+    await db.execute(
+        update(ChatMember)
+        .where(ChatMember.chat_id == chat_id, ChatMember.user_id == new_owner_id)
+        .values(role="owner")
     )
     await db.commit()
 

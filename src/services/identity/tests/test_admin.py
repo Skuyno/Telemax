@@ -153,6 +153,113 @@ async def test_internal_list_accounts(client: AsyncClient, db_session_maker):
     assert len(resp.json()) >= 2
 
 
+async def test_internal_block_account(client: AsyncClient, db_session_maker):
+    """Blocking sets blocked=True on the target."""
+    caller_id = await _create_account(db_session_maker, ADMIN)
+    target_id = await _create_account(db_session_maker, USER)
+
+    resp = await client.post(
+        f"/internal/accounts/{target_id}/block", params={"caller_id": str(caller_id)}
+    )
+    assert resp.status_code == 200
+    assert resp.json()["blocked"] is True
+
+
+async def test_internal_block_account_refuses_superuser_target(
+    client: AsyncClient, db_session_maker
+):
+    """The superuser account can never be blocked, regardless of caller."""
+    caller_id = await _create_account(db_session_maker, ADMIN)
+    superuser_id = await _create_account(db_session_maker, SUPERUSER)
+
+    resp = await client.post(
+        f"/internal/accounts/{superuser_id}/block", params={"caller_id": str(caller_id)}
+    )
+    assert resp.status_code == 403
+
+
+async def test_internal_block_account_refuses_self_block(
+    client: AsyncClient, db_session_maker
+):
+    """An account can't block itself — there'd be no one left to unblock it."""
+    caller_id = await _create_account(db_session_maker, ADMIN)
+
+    resp = await client.post(
+        f"/internal/accounts/{caller_id}/block", params={"caller_id": str(caller_id)}
+    )
+    assert resp.status_code == 400
+
+
+async def test_internal_block_account_not_found(client: AsyncClient, db_session_maker):
+    """A nonexistent target returns 404."""
+    caller_id = await _create_account(db_session_maker, ADMIN)
+
+    resp = await client.post(
+        f"/internal/accounts/{uuid4()}/block", params={"caller_id": str(caller_id)}
+    )
+    assert resp.status_code == 404
+
+
+async def test_internal_unblock_account(client: AsyncClient, db_session_maker):
+    """Unblocking clears blocked, with no caller/role checks at all."""
+    caller_id = await _create_account(db_session_maker, ADMIN)
+    target_id = await _create_account(db_session_maker, USER)
+    await client.post(
+        f"/internal/accounts/{target_id}/block", params={"caller_id": str(caller_id)}
+    )
+
+    resp = await client.post(f"/internal/accounts/{target_id}/unblock")
+    assert resp.status_code == 200
+    assert resp.json()["blocked"] is False
+
+
+async def test_internal_admin_reset_password(client: AsyncClient, db_session_maker):
+    """A new password set this way actually works for a subsequent login."""
+    caller_id = await _create_account(db_session_maker, ADMIN)
+    target_id = await _create_account(db_session_maker, USER, username="target1")
+
+    resp = await client.post(
+        f"/internal/accounts/{target_id}/password",
+        params={"caller_id": str(caller_id)},
+        json={"new_password": "brandnewpass1"},
+    )
+    assert resp.status_code == 200
+
+    login = await client.post(
+        "/auth/login", json={"username": "target1", "password": "brandnewpass1"}
+    )
+    assert login.status_code == 200
+
+
+async def test_internal_admin_reset_password_refuses_self_target(
+    client: AsyncClient, db_session_maker
+):
+    """Use the self-service /password/reset instead of targeting yourself here."""
+    caller_id = await _create_account(db_session_maker, ADMIN)
+
+    resp = await client.post(
+        f"/internal/accounts/{caller_id}/password",
+        params={"caller_id": str(caller_id)},
+        json={"new_password": "brandnewpass1"},
+    )
+    assert resp.status_code == 400
+
+
+async def test_internal_admin_reset_password_refuses_superuser_target(
+    client: AsyncClient, db_session_maker
+):
+    """The superuser's password can never be reset this way, regardless of caller."""
+    caller_id = await _create_account(db_session_maker, ADMIN)
+    superuser_id = await _create_account(db_session_maker, SUPERUSER)
+
+    resp = await client.post(
+        f"/internal/accounts/{superuser_id}/password",
+        params={"caller_id": str(caller_id)},
+        json={"new_password": "brandnewpass1"},
+    )
+    assert resp.status_code == 403
+
+
 async def test_internal_username_available_check(client: AsyncClient, db_session_maker):
     """Reports a free username as available, a taken one as not."""
     await _create_account(db_session_maker, USER, username="taken")

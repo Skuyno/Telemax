@@ -1,0 +1,7 @@
+vars:
+  POSTGRES_USER:
+    source: fixed
+    value: telemax
+  POSTGRES_PASSWORD:
+    source: secret
+    ref: postgres_password

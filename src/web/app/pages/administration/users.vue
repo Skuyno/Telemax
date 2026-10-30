@@ -1,12 +1,102 @@
 <script setup lang="ts">
-import type { Role } from '~/types/auth'
+import type { Role, UserResponse } from '~/types/auth'
 
 definePageMeta({ layout: false, middleware: 'administration' })
 
 const auth = useAuthStore()
-const { checkUsernameAvailable, createAccount } = useAdmin()
+const {
+  checkUsernameAvailable,
+  createAccount,
+  listAccounts,
+  deleteAccount,
+  blockAccount,
+  unblockAccount,
+  resetAccountPassword,
+} = useAdmin()
 
 const canPickRole = computed(() => auth.user?.role === 'superuser')
+
+// --- Список аккаунтов и действия над ними ---------------------------------
+
+const accounts = ref<UserResponse[]>([])
+const isLoadingAccounts = ref(false)
+const listError = ref('')
+const busyAccountId = ref('')
+
+// Админ видит только обычных пользователей; суперюзер — админов и
+// пользователей тоже, но никогда себя и никогда другого суперюзера (их и
+// так ровно один) — то же правило, что уже применяет бэкенд.
+const manageableAccounts = computed(() =>
+  accounts.value.filter((account) => {
+    if (account.id === auth.user?.id) return false
+    if (account.role === 'superuser') return false
+    if (account.role === 'admin' && !canPickRole.value) return false
+    return true
+  }),
+)
+
+async function loadAccounts() {
+  isLoadingAccounts.value = true
+  listError.value = ''
+  try {
+    accounts.value = await listAccounts()
+  } catch (e) {
+    listError.value = extractApiErrorMessage(e, 'Не удалось загрузить список пользователей')
+  } finally {
+    isLoadingAccounts.value = false
+  }
+}
+
+onMounted(loadAccounts)
+
+const pendingDelete = ref<UserResponse | null>(null)
+const pendingPasswordReset = ref<UserResponse | null>(null)
+const rowError = ref('')
+
+async function onToggleBlock(account: UserResponse) {
+  busyAccountId.value = account.id
+  rowError.value = ''
+  try {
+    const updated = account.blocked
+      ? await unblockAccount(account.id)
+      : await blockAccount(account.id)
+    const index = accounts.value.findIndex((item) => item.id === account.id)
+    if (index !== -1) accounts.value[index] = updated
+  } catch (e) {
+    rowError.value = extractApiErrorMessage(e, 'Не удалось изменить статус блокировки')
+  } finally {
+    busyAccountId.value = ''
+  }
+}
+
+async function onConfirmDelete() {
+  if (!pendingDelete.value) return
+  busyAccountId.value = pendingDelete.value.id
+  rowError.value = ''
+  try {
+    await deleteAccount(pendingDelete.value.id)
+    accounts.value = accounts.value.filter((item) => item.id !== pendingDelete.value!.id)
+    pendingDelete.value = null
+  } catch (e) {
+    rowError.value = extractApiErrorMessage(e, 'Не удалось удалить аккаунт')
+  } finally {
+    busyAccountId.value = ''
+  }
+}
+
+async function onConfirmPasswordReset(newPassword: string) {
+  if (!pendingPasswordReset.value) return
+  busyAccountId.value = pendingPasswordReset.value.id
+  rowError.value = ''
+  try {
+    await resetAccountPassword(pendingPasswordReset.value.id, newPassword)
+    pendingPasswordReset.value = null
+  } catch (e) {
+    rowError.value = extractApiErrorMessage(e, 'Не удалось сбросить пароль')
+  } finally {
+    busyAccountId.value = ''
+  }
+}
 
 const ring = [
   { icon: 'user', tone: 'neutral', angle: -90, radius: 210 },
@@ -86,6 +176,7 @@ async function onSubmit() {
     })
     justCreated.value = created.username
     closeForm()
+    await loadAccounts()
   } catch (e) {
     submitError.value = extractApiErrorMessage(e, 'Не удалось создать аккаунт')
   } finally {
@@ -239,7 +330,72 @@ onBeforeUnmount(() => clearTimeout(usernameCheckTimer))
           </div>
         </div>
       </form>
+
+      <section class="list">
+        <h2 class="list__title">Пользователи</h2>
+
+        <p v-if="listError" class="list__error">{{ listError }}</p>
+        <p v-else-if="isLoadingAccounts" class="list__hint">Загружаем…</p>
+        <p v-else-if="!manageableAccounts.length" class="list__hint">
+          Нет аккаунтов, которыми можно управлять.
+        </p>
+
+        <ul v-else class="list__rows">
+          <li v-for="account in manageableAccounts" :key="account.id" class="row">
+            <div class="row__ident">
+              <span class="row__name">@{{ account.username }}</span>
+              <span class="row__role" :class="`is-${account.role}`">{{ account.role }}</span>
+              <span v-if="account.blocked" class="row__badge">заблокирован</span>
+            </div>
+
+            <div class="row__actions">
+              <button
+                type="button"
+                class="row__btn"
+                :disabled="busyAccountId === account.id"
+                @click="onToggleBlock(account)"
+              >
+                {{ account.blocked ? 'Разблокировать' : 'Заблокировать' }}
+              </button>
+              <button
+                type="button"
+                class="row__btn"
+                :disabled="busyAccountId === account.id"
+                @click="pendingPasswordReset = account"
+              >
+                Сбросить пароль
+              </button>
+              <button
+                type="button"
+                class="row__btn is-danger"
+                :disabled="busyAccountId === account.id"
+                @click="pendingDelete = account"
+              >
+                Удалить
+              </button>
+            </div>
+          </li>
+        </ul>
+
+        <p v-if="rowError" class="list__error">{{ rowError }}</p>
+      </section>
     </main>
+
+    <AdminDeleteConfirm
+      :open="!!pendingDelete"
+      :busy="busyAccountId === pendingDelete?.id"
+      :username="pendingDelete?.username ?? ''"
+      @confirm="onConfirmDelete"
+      @cancel="pendingDelete = null"
+    />
+
+    <AdminPasswordResetDialog
+      :open="!!pendingPasswordReset"
+      :busy="busyAccountId === pendingPasswordReset?.id"
+      :username="pendingPasswordReset?.username ?? ''"
+      @confirm="onConfirmPasswordReset"
+      @cancel="pendingPasswordReset = null"
+    />
   </div>
 </template>
 
@@ -730,6 +886,143 @@ onBeforeUnmount(() => clearTimeout(usernameCheckTimer))
   .o,
   .orbit :deep(.tile) {
     display: none;
+  }
+}
+
+.list {
+  width: 100%;
+  max-width: 820px;
+  margin: 32px auto 0;
+  padding: 24px;
+  background: var(--color-lift);
+  border: 1px solid var(--color-line);
+  border-radius: 18px;
+}
+
+.list__title {
+  margin: 0 0 16px;
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 16px;
+  color: var(--color-text);
+}
+
+.list__hint {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.list__error {
+  margin: 8px 0 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--color-error);
+}
+
+.list__rows {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 14px 16px;
+  background: var(--color-ground);
+  border: 1px solid var(--color-line);
+  border-radius: 14px;
+}
+
+.row__ident {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.row__name {
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--color-text);
+}
+
+.row__role {
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-dim);
+  box-shadow: inset 0 0 0 1px var(--color-line);
+}
+
+.row__role.is-admin {
+  color: var(--color-accent);
+  box-shadow: inset 0 0 0 1px rgba(255, 204, 46, 0.4);
+}
+
+.row__badge {
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-error);
+  box-shadow: inset 0 0 0 1px rgba(255, 107, 94, 0.4);
+}
+
+.row__actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.row__btn {
+  height: 34px;
+  padding: 0 14px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: 10px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--color-text);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.row__btn:hover:not(:disabled) {
+  background: var(--color-lift);
+}
+
+.row__btn.is-danger {
+  color: var(--color-error);
+}
+
+.row__btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+@media (max-width: 760px) {
+  .list {
+    padding: 18px;
+  }
+
+  .row {
+    flex-direction: column;
+    align-items: flex-start;
   }
 }
 </style>

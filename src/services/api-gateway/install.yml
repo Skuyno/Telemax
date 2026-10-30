@@ -1,0 +1,16 @@
+vars:
+  JWT_SECRET:
+    source: secret
+    ref: jwt_secret
+  IDENTITY_URL:
+    source: fixed
+    value: "http://identity:8000"
+  COMMUNICATION_URL:
+    source: fixed
+    value: "http://communication:8000"
+  FILE_ORCHESTRATOR_URL:
+    source: fixed
+    value: "http://file-orchestrator:8000"
+  ADMINISTRATION_URL:
+    source: fixed
+    value: "http://administration:8000"

@@ -6,7 +6,7 @@ export interface ChatPreview {
 
 export interface Chat {
   id: string
-  type: 'direct' | 'group'
+  type: 'direct' | 'group' | 'notifications'
   title: string
   initials: string
   peerId: string
@@ -54,10 +54,27 @@ export interface UserSearchResult {
   avatarUrl: string | null
 }
 
+export interface ChatProfile {
+  id: string
+  title: string
+  initials: string
+  avatarUrl: string | null
+}
+
+/** Участник группы вместе с данными профиля. */
+export interface GroupMember {
+  id: string
+  username: string
+  title: string
+  initials: string
+  avatarUrl: string | null
+  isOwner: boolean
+}
+
 /** Raw response shape from GET /chats */
 export interface ChatResponse {
   id: string
-  type: 'direct' | 'group'
+  type: 'direct' | 'group' | 'notifications'
   title: string | null
   unread_count: number
   last_message: {
@@ -155,6 +172,14 @@ export interface MessageDeletedEvent {
   }
 }
 
+export interface ChatSyncRequiredEvent {
+  type: 'chat.sync_required'
+  data: {
+    chat_id: string
+    reason: 'created' | 'updated' | 'members_added' | 'member_removed'
+  }
+}
+
 export type WsEvent =
   | MessageCreatedEvent
   | MessageUpdatedEvent
@@ -162,3 +187,4 @@ export type WsEvent =
   | PresenceEvent
   | TypingEvent
   | MessageReadEvent
+  | ChatSyncRequiredEvent

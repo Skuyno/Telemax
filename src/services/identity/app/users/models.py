@@ -30,3 +30,7 @@ class User(Base):
     # convention as other short fixed-vocabulary string fields in this
     # codebase (e.g. Chat.type in communication).
     role: Mapped[str] = mapped_column(String(16), default="user", server_default="user")
+    # Set by an admin (see app/internal/router.py). A blocked user can't log
+    # in or refresh; an already-issued access token still works until it
+    # naturally expires (<=15 min) — login/refresh are the only gates.
+    blocked: Mapped[bool] = mapped_column(default=False, server_default="false")

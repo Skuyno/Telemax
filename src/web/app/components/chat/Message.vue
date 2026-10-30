@@ -2,17 +2,26 @@
 import type { Message } from '~/types/chat'
 import { formatMessageTime } from '~/utils/chatTime'
 
-defineProps<{
+const props = defineProps<{
   message: Message
   own: boolean
   initials: string
   avatarUrl?: string | null
   read?: boolean
+  authorName?: string
   hideStatus?: boolean
   highlighted?: boolean
 }>()
 
 defineEmits<{ edit: []; remove: [] }>()
+
+const hasMedia = computed(
+  () => !props.message.isDeleted && props.message.attachmentIds.length > 0,
+)
+
+const isMediaOnly = computed(() => hasMedia.value && !props.message.body)
+
+const hasCaption = computed(() => hasMedia.value && Boolean(props.message.body))
 </script>
 
 <template>
@@ -25,7 +34,18 @@ defineEmits<{ edit: []; remove: [] }>()
       <UserAvatar :url="avatarUrl" :initials="initials" />
     </span>
 
-    <div class="bubble" :class="{ 'is-own': own, 'is-deleted': message.isDeleted }">
+    <div
+      class="bubble"
+      :class="{
+        'is-own': own,
+        'is-deleted': message.isDeleted,
+        'has-media': hasMedia,
+        'is-media': isMediaOnly,
+        'has-caption': hasCaption,
+      }"
+    >
+      <p v-if="authorName && !own" class="bubble__author">{{ authorName }}</p>
+
       <p v-if="message.isDeleted" class="bubble__body is-deleted">Сообщение удалено</p>
 
       <template v-else>
@@ -149,6 +169,76 @@ defineEmits<{ edit: []; remove: [] }>()
   border-radius: var(--chat-radius-lg);
 }
 
+.bubble.has-media {
+  position: relative;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+  width: fit-content;
+  padding: 0;
+  overflow: hidden;
+}
+
+.bubble.has-media .bubble__meta {
+  margin-left: auto;
+}
+
+.bubble.has-media .bubble__author {
+  padding: 8px 12px 4px;
+}
+
+.bubble.has-caption .bubble__body {
+  padding: 6px 68px 6px 12px;
+}
+
+.bubble.has-caption .bubble__meta {
+  position: absolute;
+  right: 12px;
+  bottom: 6px;
+  padding: 0;
+}
+
+.bubble.has-media :deep(.file) {
+  max-width: none;
+  border: none;
+  border-radius: 0;
+}
+
+.bubble.is-media .bubble__meta {
+  padding: 4px 9px;
+  background: rgba(7, 11, 28, 0.78);
+  border-radius: 999px;
+}
+
+.bubble.is-media:not(.is-deleted) .bubble__meta,
+.bubble.is-own.is-media:not(.is-deleted) .bubble__meta {
+  color: var(--color-text);
+  opacity: 1;
+}
+
+.bubble.is-own.is-media:not(.is-deleted) .bubble__time,
+.bubble.is-own.is-media:not(.is-deleted) .bubble__edited {
+  color: var(--color-text);
+}
+
+.bubble.is-media .bubble__meta {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+}
+
+.bubble.is-media:not(:has(.media)) :deep(.file) {
+  padding-right: 86px;
+}
+
+.bubble.is-media :deep(.audio) {
+  padding-bottom: 14px;
+}
+
+.bubble.is-media :deep(.audio__info) {
+  padding-right: 64px;
+}
+
 .bubble.is-own {
   background: var(--color-accent);
   border-color: var(--color-accent);
@@ -165,6 +255,16 @@ defineEmits<{ edit: []; remove: [] }>()
   flex-direction: column;
   gap: 6px;
   width: 100%;
+}
+
+.bubble__author {
+  width: 100%;
+  margin: -2px 0 -5px;
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 12px;
+  line-height: 1.2;
+  color: var(--color-accent);
 }
 
 .bubble__body {

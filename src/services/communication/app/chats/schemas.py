@@ -37,7 +37,7 @@ class ChatResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
-    type: Literal["direct", "group"]
+    type: Literal["direct", "group", "notifications"]
     title: str | None = None
     last_message: MessagePreview | None
     unread_count: int = 0

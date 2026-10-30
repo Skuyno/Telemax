@@ -118,3 +118,115 @@ async def test_client_cannot_spoof_x_user_id():
     sent_headers = fake_client.build_request.call_args.kwargs["headers"]
     assert sent_headers["X-User-Id"] == real_user_id
     assert "Authorization" not in sent_headers
+
+
+async def test_content_length_now_passes_through():
+    """content-length used to be unconditionally dropped — Range support needs it.
+
+    A <video>/<audio> element can't seek a chunked-transfer response; an
+    exact Content-Length (matching the bytes upstream_body() actually
+    relays, since it transforms nothing) is what makes that possible.
+    """
+    fake_client = _fake_upstream_client(
+        200, {"content-type": "application/octet-stream", "content-length": "36"}, b"x"
+    )
+    with patch("app.router.httpx.AsyncClient", return_value=fake_client):
+        transport = ASGITransport(app=app)
+        async with HttpClient(transport=transport, base_url="http://test") as client:
+            resp = await client.get(
+                "/files/some-id",
+                headers={"Authorization": f"Bearer {_access_token(str(uuid4()))}"},
+            )
+
+    assert resp.headers["content-length"] == "36"
+
+
+async def test_range_header_is_forwarded_upstream():
+    """A client's Range header reaches file-orchestrator unmodified."""
+    fake_client = _fake_upstream_client(
+        206,
+        {
+            "content-type": "application/octet-stream",
+            "content-length": "10",
+            "content-range": "bytes 0-9/36",
+        },
+        b"0123456789",
+    )
+    with patch("app.router.httpx.AsyncClient", return_value=fake_client):
+        transport = ASGITransport(app=app)
+        async with HttpClient(transport=transport, base_url="http://test") as client:
+            resp = await client.get(
+                "/files/some-id",
+                headers={
+                    "Authorization": f"Bearer {_access_token(str(uuid4()))}",
+                    "Range": "bytes=0-9",
+                },
+            )
+
+    sent_headers = fake_client.build_request.call_args.kwargs["headers"]
+    assert sent_headers["range"] == "bytes=0-9"
+    assert resp.status_code == 206
+    assert resp.headers["content-range"] == "bytes 0-9/36"
+
+
+async def _get_with_fake_upstream_status(status: int) -> int:
+    fake_client = _fake_upstream_client(
+        status, {"content-type": "application/octet-stream"}, b""
+    )
+    token = _access_token(str(uuid4()))
+    with patch("app.router.httpx.AsyncClient", return_value=fake_client):
+        transport = ASGITransport(app=app)
+        async with HttpClient(transport=transport, base_url="http://test") as client:
+            resp = await client.get(
+                "/files/some-id", headers={"Authorization": f"Bearer {token}"}
+            )
+    return resp.status_code
+
+
+async def test_206_and_416_status_codes_pass_through_unchanged():
+    """Neither partial-content nor range-not-satisfiable get rewritten to 200."""
+    assert await _get_with_fake_upstream_status(206) == 206
+    assert await _get_with_fake_upstream_status(416) == 416
+
+
+async def test_signed_file_link_bypasses_the_bearer_requirement():
+    """A GET with sig+exp needs no Authorization header at all.
+
+    This is the whole point of the feature: a <video>/<audio> src can't
+    attach one. file-orchestrator does its own signature verification —
+    the gateway must not 401 before the request even gets there, and must
+    not inject an X-User-Id either (there's no authenticated user here).
+    """
+    fake_client = _fake_upstream_client(
+        200, {"content-type": "application/octet-stream"}, b"video bytes"
+    )
+    with patch("app.router.httpx.AsyncClient", return_value=fake_client):
+        transport = ASGITransport(app=app)
+        async with HttpClient(transport=transport, base_url="http://test") as client:
+            resp = await client.get("/files/some-id?sig=abc123&exp=9999999999")
+
+    assert resp.status_code == 200
+    sent_headers = fake_client.build_request.call_args.kwargs["headers"]
+    assert "X-User-Id" not in sent_headers
+
+
+async def test_signed_link_bypass_does_not_apply_to_link_creation():
+    """POST .../link still requires a real bearer token, sig/exp or not.
+
+    Only a bare GET on files/{id} is special-cased — creating a link is a
+    different path shape (an extra /link segment) and a different method.
+    """
+    transport = ASGITransport(app=app)
+    async with HttpClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post("/files/some-id/link?sig=abc123&exp=9999999999")
+
+    assert resp.status_code == 401
+
+
+async def test_signed_link_bypass_does_not_apply_without_both_params():
+    """Only sig *and* exp together qualify — either alone still needs a token."""
+    transport = ASGITransport(app=app)
+    async with HttpClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/files/some-id?sig=abc123")
+
+    assert resp.status_code == 401

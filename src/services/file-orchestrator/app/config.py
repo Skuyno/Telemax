@@ -43,6 +43,11 @@ class Settings(BaseSettings):
     # locally via .env when debugging queries.
     sql_echo: bool = False
 
+    # Signs short-lived download links (see app/files/links.py) — these let
+    # a <video>/<audio> src fetch a file without an Authorization header.
+    # Dev-only default; a real deploy gets a generated value via install.yml.
+    link_signing_secret: str = "insecure-dev-secret-change-me"
+
     model_config = SettingsConfigDict(
         env_file=_find_env_file(),
         env_file_encoding="utf-8",

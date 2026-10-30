@@ -86,7 +86,11 @@ async def list_user_chats(
         ChatResponse(
             id=chat.id,
             type=chat.type,
-            title=title,
+            # Group chats carry a real title from the DB; direct chats have
+            # none (the frontend resolves a display name from the other
+            # participant); a notifications chat has no subtype row either,
+            # so its one fixed, well-known name is supplied here instead.
+            title="Уведомления" if chat.type == "notifications" else title,
             last_message=last_messages.get(chat.id),
             unread_count=unread_counts.get(chat.id, 0),
         )

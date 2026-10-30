@@ -2,6 +2,7 @@
 
 import logging
 from collections.abc import AsyncIterator
+from dataclasses import replace
 from uuid import UUID
 
 import httpx
@@ -11,9 +12,10 @@ from uuid6 import uuid7
 
 from app.config import settings
 from app.events import nats_client
+from app.files import links, storage
 from app.files import repository as files_repository
-from app.files import storage
 from app.files.models import File
+from app.files.storage import StorageResponse
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +33,28 @@ async def assert_chat_member(chat_id: UUID, user_id: UUID) -> None:
     response.raise_for_status()
     if not response.json()["is_member"]:
         raise HTTPException(status_code=403, detail="not a member of this chat")
+
+
+async def assert_can_access_file(file_id: UUID, user_id: UUID) -> None:
+    """Verify the user can see some message that attaches this file.
+
+    Deliberately not "is the user a member of file.chat_id" — that's only
+    where the file was originally uploaded, not necessarily where a message
+    actually attaching it lives later (a broadcast attaches the same
+    file_id to a different message in every recipient's own notifications
+    chat, none of which is the upload chat). Communication owns messages
+    and attachments, so it answers this, not a membership lookup here.
+
+    Raises:
+        HTTPException: 403 if the user isn't authorized.
+    """
+    async with httpx.AsyncClient() as client:
+        response = await client.get(
+            f"{settings.communication_url}/internal/files/{file_id}/access/{user_id}"
+        )
+    response.raise_for_status()
+    if not response.json()["authorized"]:
+        raise HTTPException(status_code=403, detail="not authorized for this file")
 
 
 async def _get_chat_member_ids(chat_id: UUID) -> list[str]:
@@ -128,21 +152,69 @@ async def upload_file(
 
 
 async def download_file(
-    db: AsyncSession, file_id: UUID, user_id: UUID
-) -> tuple[File, AsyncIterator[bytes]]:
-    """Authorize and stream a ready file's bytes back to the caller.
+    db: AsyncSession,
+    file_id: UUID,
+    user_id: UUID | None,
+    sig: str | None,
+    exp: int | None,
+    range_header: str | None,
+) -> tuple[File, StorageResponse]:
+    """Authorize (via chat membership or a signed link) and fetch a file's bytes.
+
+    A signed link (sig + exp) is a self-contained credential, checked first
+    and independently of any X-User-Id also present — it's the one path a
+    browser can use with no Authorization header at all (see
+    app/files/links.py and create_file_link below).
 
     Raises:
-        HTTPException: 404 if the file doesn't exist or isn't ready.
+        HTTPException: 404 if the file doesn't exist or isn't ready, 401 if
+            neither a user id nor a signed link was given, 403 if the
+            signed link is invalid/expired or the user can't otherwise
+            access this file.
     """
     file = await files_repository.get_file(db, file_id)
     if file is None or file.status != "ready":
         raise HTTPException(status_code=404, detail="file not found")
 
-    await assert_chat_member(file.chat_id, user_id)
+    if sig is not None and exp is not None:
+        if not links.verify_link(str(file_id), sig, exp):
+            raise HTTPException(status_code=403, detail="invalid or expired link")
+    elif user_id is not None:
+        await assert_can_access_file(file_id, user_id)
+    else:
+        raise HTTPException(status_code=401, detail="authorization required")
 
-    body, _ = await storage.stream_object(file.storage_key)
-    return file, body
+    storage_response = await storage.stream_object(file.storage_key, range_header)
+    if range_header is None:
+        # Already known from our own record — no need to trust/recompute
+        # from the storage response for the whole-file case.
+        storage_response = replace(
+            storage_response,
+            status_code=200,
+            content_length=file.size_bytes,
+            content_range=None,
+        )
+    return file, storage_response
+
+
+async def create_file_link(
+    db: AsyncSession, file_id: UUID, user_id: UUID
+) -> tuple[str, int]:
+    """Authorize and issue a signed, short-lived download link.
+
+    Raises:
+        HTTPException: 404 if the file doesn't exist or isn't ready, 403 if
+            the caller can't access this file.
+    """
+    file = await files_repository.get_file(db, file_id)
+    if file is None or file.status != "ready":
+        raise HTTPException(status_code=404, detail="file not found")
+
+    await assert_can_access_file(file_id, user_id)
+
+    sig, exp = links.issue_link(str(file_id))
+    url = f"/files/{file_id}?sig={sig}&exp={exp}"
+    return url, links.LINK_TTL_SECONDS
 
 
 async def delete_file(db: AsyncSession, file_id: UUID) -> None:

@@ -8,6 +8,7 @@ const AUTH_ERROR_MESSAGES: Record<string, string> = {
   'Invalid credentials': 'Неверный логин или пароль',
   'Username already taken': 'Данный логин уже используется в системе',
   'Registration is disabled': 'Регистрация отключена',
+  'Account is blocked': 'Аккаунт заблокирован',
 }
 
 /** Like extractApiErrorMessage, but translates known /auth/* detail strings to Russian. */

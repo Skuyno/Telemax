@@ -25,6 +25,7 @@ const sendError = ref('')
 const feed = ref<HTMLElement | null>(null)
 
 const searchOpen = ref(false)
+const membersOpen = ref(false)
 const highlightedId = ref<string | null>(null)
 let highlightTimer: ReturnType<typeof setTimeout> | undefined
 
@@ -45,6 +46,32 @@ const myInitials = computed(() => {
   return name ? toInitials(name) : ''
 })
 
+const isGroup = computed(() => props.chat.type === 'group')
+const isNotifications = computed(() => props.chat.type === 'notifications')
+
+function senderName(senderId: string) {
+  return chatStore.profileByUserId[senderId]?.title ?? 'Неизвестный пользователь'
+}
+
+function senderInitials(senderId: string) {
+  if (senderId === props.meId) return myInitials.value
+  if (isGroup.value) return chatStore.profileByUserId[senderId]?.initials ?? ''
+  return props.chat.initials
+}
+
+function senderAvatar(senderId: string) {
+  if (senderId === props.meId) return auth.user?.avatarUrl ?? null
+  if (isGroup.value) return chatStore.profileByUserId[senderId]?.avatarUrl ?? null
+  return props.chat.avatarUrl
+}
+
+const typingLabel = computed(() => {
+  if (!isGroup.value) return 'печатает'
+  const userId = chatStore.typingUserIdByChatId[props.chat.id]
+  const name = userId ? chatStore.profileByUserId[userId]?.title : ''
+  return name ? `${name} печатает` : 'печатает'
+})
+
 /** Лента, разбитая на группы по дням — под разделители дат. */
 const groups = computed(() => {
   const result: { key: string; date: string; items: Message[] }[] = []
@@ -60,9 +87,29 @@ const groups = computed(() => {
   return result
 })
 
+let pinTimer: ReturnType<typeof setInterval> | undefined
+let pinStoppedAt = 0
+
 async function scrollToBottom() {
   await nextTick()
-  if (feed.value) feed.value.scrollTop = feed.value.scrollHeight
+  if (!feed.value) return
+  feed.value.scrollTop = feed.value.scrollHeight
+  pinnedToBottom.value = true
+  holdBottom()
+}
+
+/** Пока грузятся вложения, лента меняет высоту — держим низ ещё полторы секунды. */
+function holdBottom() {
+  clearInterval(pinTimer)
+  pinStoppedAt = Date.now() + 1500
+  pinTimer = setInterval(() => {
+    const el = feed.value
+    if (!el || Date.now() > pinStoppedAt) {
+      clearInterval(pinTimer)
+      return
+    }
+    if (pinnedToBottom.value) el.scrollTop = el.scrollHeight
+  }, 80)
 }
 
 async function onSubmit(text: string, attachmentIds: string[]) {
@@ -140,9 +187,37 @@ async function jumpTo(message: Message) {
   highlightTimer = setTimeout(() => (highlightedId.value = null), 2000)
 }
 
+const pinnedToBottom = ref(true)
+let feedObserver: ResizeObserver | null = null
+
 function onScroll() {
-  if (feed.value && feed.value.scrollTop < 40) emit('loadOlder')
+  const el = feed.value
+  if (!el) return
+
+  pinnedToBottom.value = el.scrollHeight - el.scrollTop - el.clientHeight < 90
+  if (el.scrollTop < 40) emit('loadOlder')
 }
+
+onMounted(() => {
+  if (!feed.value || typeof ResizeObserver === 'undefined') return
+
+  feedObserver = new ResizeObserver(() => {
+    if (pinnedToBottom.value && feed.value) feed.value.scrollTop = feed.value.scrollHeight
+  })
+  for (const child of Array.from(feed.value.children)) feedObserver.observe(child)
+})
+
+watch(groups, async () => {
+  if (!feedObserver || !feed.value) return
+  await nextTick()
+  feedObserver.disconnect()
+  for (const child of Array.from(feed.value.children)) feedObserver.observe(child)
+})
+
+onBeforeUnmount(() => {
+  feedObserver?.disconnect()
+  clearInterval(pinTimer)
+})
 
 onBeforeUnmount(() => clearTimeout(highlightTimer))
 
@@ -174,6 +249,7 @@ watch(
     sendError.value = ''
     editing.value = null
     searchOpen.value = false
+    membersOpen.value = false
     scrollToBottom()
   },
   { immediate: true },
@@ -192,18 +268,36 @@ watch(
       <span class="dialog__avatar">
         <ChatSavedIcon v-if="chat.isSaved" />
         <ChatGroupIcon v-else-if="chat.type === 'group'" />
+        <ChatNotificationsIcon v-else-if="isNotifications" />
         <UserAvatar v-else :url="chat.avatarUrl" :initials="chat.initials" />
         <span v-if="online" class="dialog__online" />
       </span>
       <span class="dialog__ident">
         <span class="dialog__title">{{ chat.title }}</span>
         <span v-if="chat.isSaved" class="dialog__status">заметки для себя</span>
+        <span v-else-if="isNotifications" class="dialog__status">только для чтения</span>
         <span v-else-if="chat.type === 'group'" class="dialog__status">
           {{ memberCountLabel }}
         </span>
-        <span v-if="typing" class="dialog__status is-active">печатает…</span>
+        <span v-if="typing" class="dialog__status is-active">{{ typingLabel }}…</span>
         <span v-else-if="online" class="dialog__status is-active">в сети</span>
       </span>
+
+      <button
+        v-if="chat.type === 'group'"
+        type="button"
+        class="dialog__tool"
+        :class="{ 'is-active': membersOpen }"
+        aria-label="Участники группы"
+        @click="membersOpen = true"
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+          <circle cx="9" cy="7" r="4" />
+          <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+          <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+        </svg>
+      </button>
 
       <button
         type="button"
@@ -232,8 +326,9 @@ watch(
           :key="message.id"
           :message="message"
           :own="message.senderId === meId"
-          :initials="message.senderId === meId ? myInitials : chat.initials"
-          :avatar-url="message.senderId === meId ? auth.user?.avatarUrl : chat.avatarUrl"
+          :initials="senderInitials(message.senderId)"
+          :avatar-url="senderAvatar(message.senderId)"
+          :author-name="isGroup ? senderName(message.senderId) : undefined"
           :read="chatStore.isMessageRead(message)"
           :hide-status="chat.isSaved"
           :highlighted="highlightedId === message.id"
@@ -252,13 +347,17 @@ watch(
     </div>
 
     <p v-if="typing" class="dialog__typing">
-      печатает
+      {{ typingLabel }}
       <span class="dialog__dots" aria-hidden="true"><i /><i /><i /></span>
     </p>
 
     <p v-if="sendError" class="dialog__error">{{ sendError }}</p>
 
+    <p v-if="isNotifications" class="dialog__readonly">
+      Это системный чат с уведомлениями — отправка сообщений недоступна.
+    </p>
     <ChatComposer
+      v-else
       ref="composer"
       :chat-id="chat.id"
       :editing="editing"
@@ -267,6 +366,8 @@ watch(
       @cancel-edit="cancelEdit"
       @typing="emit('typing')"
     />
+
+    <ChatGroupMembers v-if="membersOpen" :chat="chat" @close="membersOpen = false" />
 
     <ChatDeleteConfirm
       :open="!!pendingRemoval"
@@ -404,6 +505,7 @@ watch(
 .dialog__feed {
   flex: 1;
   overflow-y: auto;
+  overflow-anchor: none;
   padding: 20px;
   background-image: var(--chat-grid);
   background-size: 48px 48px;
@@ -497,6 +599,17 @@ watch(
   font-family: var(--font-mono);
   font-size: 11px;
   color: var(--color-error);
+}
+
+.dialog__readonly {
+  margin: 0;
+  flex: none;
+  padding: 14px;
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--color-text-muted);
+  border-top: 1px solid rgba(61, 79, 156, 0.6);
 }
 
 @media (max-width: 900px) {
