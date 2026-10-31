@@ -46,6 +46,50 @@ def test_index_shows_form_when_repo_has_no_manifests_at_all(
     assert "install-form" in response.text
 
 
+def test_index_shows_progress_when_a_run_is_in_progress(client: TestClient) -> None:
+    """A background run in progress shows the live status, not the form."""
+    state.set_step("building", "Сборка и запуск контейнеров")
+
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert "Установка выполняется" in response.text
+    assert 'id="install-form" class="hidden"' in response.text
+
+
+def test_index_prefers_in_progress_over_already_configured(
+    client: TestClient, repo_root: Path
+) -> None:
+    """Reloading mid-build must not show 'installed' prematurely.
+
+    `.env` is written near the start of the run, long before the stack
+    actually finishes coming up.
+    """
+    identity_env = repo_root / "src" / "services" / "identity" / ".env"
+    identity_env.write_text("SUPERUSER_USERNAME=admin\n", encoding="utf-8")
+    state.set_step("building")
+
+    response = client.get("/")
+
+    assert "Мессенджер установлен" not in response.text
+    assert "Установка выполняется" in response.text
+
+
+def test_index_shows_stub_for_a_hand_configured_deployment_when_idle(
+    client: TestClient, repo_root: Path
+) -> None:
+    """An already-fully-configured .env shows the stub when idle.
+
+    This is the hand-configured-deployment scenario — no run in progress.
+    """
+    identity_env = repo_root / "src" / "services" / "identity" / ".env"
+    identity_env.write_text("SUPERUSER_USERNAME=admin\n", encoding="utf-8")
+
+    response = client.get("/")
+
+    assert "Мессенджер установлен" in response.text
+
+
 def test_post_install_conflicts_when_already_installed(
     client: TestClient, repo_root: Path
 ) -> None:
