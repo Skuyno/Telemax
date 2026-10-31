@@ -33,4 +33,11 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ${PWD}/..:${PWD}/..
-    working_dir: ${PWD}/../deploy
+    # No working_dir override here on purpose: it would replace the
+    # Dockerfile's own WORKDIR /code (where the baked-in `app` package
+    # actually lives) with the bind-mounted host repo's deploy/ directory,
+    # which has no such package at all — uvicorn would then fail with
+    # "ModuleNotFoundError: No module named 'app'" (caught on a real
+    # deploy). The app never relies on its own cwd anyway: REPO_ROOT above
+    # is what it reads, and every subprocess call to `docker compose`
+    # passes its own explicit cwd=deploy_dir.
