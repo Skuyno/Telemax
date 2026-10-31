@@ -210,9 +210,9 @@
       <h2 class="title">Мессенджер установлен</h2>
       <p class="version">Версия {{ version }}</p>
       {% else %}
-      <h2 class="title">Установка</h2>
+      <h2 class="title">{{ 'Установка выполняется' if in_progress else 'Установка' }}</h2>
 
-      <form id="install-form">
+      <form id="install-form" class="{{ 'hidden' if in_progress else '' }}">
         {% for f in fields %} {% if f.input_type == 'checkbox' %}
         <label class="field field--checkbox">
           <input
@@ -271,7 +271,7 @@
       </form>
 
       <p id="error" class="error hidden"></p>
-      <p id="status" class="status hidden"></p>
+      <p id="status" class="status {{ '' if in_progress else 'hidden' }}"></p>
       {% endif %}
     </div>
 
@@ -357,6 +357,16 @@
 
         setTimeout(poll, 1500)
       }
+
+      {% if in_progress %}
+      // Reopened mid-install (e.g. the tab was closed and the page
+      // reloaded) — the background run is already underway server-side,
+      // so just resume watching it instead of waiting for a form submit
+      // that will never come (the form above is rendered hidden).
+      form.classList.add('hidden')
+      statusEl.classList.remove('hidden')
+      poll()
+      {% endif %}
     </script>
     {% endif %}
   </body>

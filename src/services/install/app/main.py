@@ -48,20 +48,32 @@ def _already_configured() -> bool:
 
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request) -> HTMLResponse:
-    """Serve the install form, or the stub page once installed.
+    """Serve the install form, the live progress view, or the stub page.
+
+    Checked in this order on purpose: a background run in progress (`state`)
+    must win over `_already_configured()` — that check turns true the
+    moment `.env` files are written, which happens near the very start of
+    `run_installation`, long before `docker compose up --build` actually
+    finishes. Without this ordering, reloading the page mid-build (e.g.
+    after closing and reopening the tab) would wrongly show "installed"
+    while the stack is still coming up.
 
     Args:
         request: the incoming request (required by Jinja2Templates).
 
     Returns:
-        HTMLResponse: the rendered form or stub page.
+        HTMLResponse: the rendered form, progress view, or stub page.
     """
     version = (REPO_ROOT / "VERSION").read_text(encoding="utf-8").strip()
-    if marker.is_installed(REPO_ROOT) or _already_configured():
-        context = {"installed": True, "version": version}
+    if marker.is_installed(REPO_ROOT):
+        context = {"installed": True, "version": version, "in_progress": False}
+    elif state.is_running():
+        context = {"installed": False, "in_progress": True, "fields": []}
+    elif _already_configured():
+        context = {"installed": True, "version": version, "in_progress": False}
     else:
         fields = collect_form_fields(discover_manifests(REPO_ROOT))
-        context = {"installed": False, "fields": fields}
+        context = {"installed": False, "in_progress": False, "fields": fields}
     return _templates.TemplateResponse(request, "index.html", context)
 
 
