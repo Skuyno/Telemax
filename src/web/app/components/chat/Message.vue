@@ -57,7 +57,16 @@ const hasCaption = computed(() => hasMedia.value && Boolean(props.message.body))
             :own="own"
           />
         </div>
-        <p v-if="message.body" class="bubble__body">{{ message.body }}</p>
+        <p v-if="message.body" class="bubble__body">{{ message.body }}<span
+            v-if="!hasMedia"
+            class="bubble__spacer"
+            aria-hidden="true"
+          ><span v-if="message.editedAt" class="bubble__edited">изменено</span><span
+            class="bubble__time"
+          >{{ formatMessageTime(message.createdAt) }}</span><span
+            v-if="own && !hideStatus"
+            class="bubble__spacer-check"
+          /></span></p>
       </template>
 
       <span class="bubble__meta">
@@ -279,6 +288,28 @@ const hasCaption = computed(() => hasMedia.value && Boolean(props.message.body))
 
 .bubble.is-own .bubble__body {
   color: var(--color-ink);
+}
+
+.bubble:not(.has-media):not(.is-deleted) {
+  position: relative;
+}
+
+.bubble:not(.has-media):not(.is-deleted) .bubble__meta {
+  position: absolute;
+  right: 14px;
+  bottom: 9px;
+}
+
+.bubble__spacer {
+  display: inline-flex;
+  gap: 4px;
+  margin-left: 10px;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.bubble__spacer-check {
+  width: 14px;
 }
 
 .bubble__body.is-deleted,

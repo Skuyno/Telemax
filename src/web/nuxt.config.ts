@@ -13,6 +13,7 @@ export default defineNuxtConfig({
 
   app: {
     head: {
+      viewport: 'width=device-width, initial-scale=1, interactive-widget=resizes-content',
       link: [
         { rel: 'preconnect', href: 'https://fonts.googleapis.com' },
         { rel: 'preconnect', href: 'https://fonts.gstatic.com', crossorigin: '' },

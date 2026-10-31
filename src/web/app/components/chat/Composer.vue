@@ -42,6 +42,8 @@ function focus() {
 defineExpose({ reset, focus })
 
 function onEnter(event: KeyboardEvent) {
+  if (event.isComposing) return
+  if (window.matchMedia('(pointer: coarse)').matches) return
   event.preventDefault()
   if (event.ctrlKey || event.metaKey || event.shiftKey) insertNewline()
   else onSubmit()
@@ -102,7 +104,7 @@ function onFilesChosen(event: Event) {
 
   for (const file of files) {
     const upload: PendingUpload = {
-      key: crypto.randomUUID(),
+      key: randomId(),
       name: file.name,
       size: file.size,
       progress: 0,
@@ -212,6 +214,7 @@ function onCancelEdit() {
         v-model="draft"
         class="input"
         rows="1"
+        enterkeyhint="enter"
         :placeholder="editing ? 'Новый текст сообщения' : 'Сообщение'"
         aria-label="Сообщение"
         @input="emit('typing')"
@@ -278,6 +281,11 @@ function onCancelEdit() {
   font-family: var(--font-mono);
   font-size: 13px;
   color: var(--color-text);
+  scrollbar-width: none;
+}
+
+.input::-webkit-scrollbar {
+  display: none;
 }
 
 .input::placeholder {
