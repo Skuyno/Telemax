@@ -97,6 +97,15 @@ function onWindowResize() {
   sidebarWidth.value = clampSidebar(sidebarWidth.value)
 }
 
+const viewportHeight = ref<number | null>(null)
+
+function onViewportResize() {
+  const viewport = window.visualViewport
+  if (!viewport) return
+  viewportHeight.value = viewport.height
+  if (window.scrollY) window.scrollTo(0, 0)
+}
+
 function onBack() {
   showDialogOnNarrow.value = false
   chatStore.setActiveChat(null)
@@ -144,6 +153,8 @@ onMounted(() => {
   window.addEventListener('focus', onPageReturn)
   document.addEventListener('visibilitychange', onPageReturn)
   window.addEventListener('resize', onWindowResize)
+  window.visualViewport?.addEventListener('resize', onViewportResize)
+  onViewportResize()
 
   try {
     const saved = Number(localStorage.getItem(SIDEBAR_WIDTH_KEY))
@@ -164,6 +175,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('focus', onPageReturn)
   document.removeEventListener('visibilitychange', onPageReturn)
   window.removeEventListener('resize', onWindowResize)
+  window.visualViewport?.removeEventListener('resize', onViewportResize)
 })
 
 const showSidebar = computed(() => !isNarrow.value || !showDialogOnNarrow.value)
@@ -174,7 +186,10 @@ const showDialog = computed(() => !isNarrow.value || showDialogOnNarrow.value)
   <div
     class="chats"
     :class="{ 'is-resizing': isResizing }"
-    :style="isNarrow ? undefined : { '--sidebar-width': `${sidebarWidth}px` }"
+    :style="{
+      '--sidebar-width': isNarrow ? undefined : `${sidebarWidth}px`,
+      height: isNarrow && viewportHeight ? `${viewportHeight}px` : undefined,
+    }"
   >
     <ChatSidebar
       v-if="showSidebar"

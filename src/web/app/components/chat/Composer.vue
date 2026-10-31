@@ -281,6 +281,11 @@ function onCancelEdit() {
   font-family: var(--font-mono);
   font-size: 13px;
   color: var(--color-text);
+  scrollbar-width: none;
+}
+
+.input::-webkit-scrollbar {
+  display: none;
 }
 
 .input::placeholder {
