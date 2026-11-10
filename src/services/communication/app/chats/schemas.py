@@ -60,6 +60,7 @@ class SendMessageRequest(BaseModel):
     body: str
     client_msg_id: UUID
     attachment_file_ids: list[UUID] = Field(default_factory=list)
+    reply_to_message_id: UUID | None = None
 
 
 class EditMessageRequest(BaseModel):
@@ -89,6 +90,7 @@ class MessageResponse(BaseModel):
     attachment_file_ids: list[UUID] = Field(default_factory=list)
     forwarded_from_message_id: UUID | None = None
     forwarded_from_sender_id: UUID | None = None
+    reply_to_message_id: UUID | None = None
 
 
 class ForwardMessageRequest(BaseModel):
