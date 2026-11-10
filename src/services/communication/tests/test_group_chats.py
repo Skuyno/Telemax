@@ -59,6 +59,7 @@ async def test_create_solo_group(
             "title": "My group",
             "last_message": None,
             "unread_count": 0,
+            "is_pinned": False,
         }
     ]
 

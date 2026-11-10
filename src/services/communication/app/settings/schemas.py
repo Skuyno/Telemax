@@ -13,9 +13,11 @@ class ChatSettingsResponse(BaseModel):
     chat_id: UUID
     user_id: UUID
     notifications_muted: bool
+    is_pinned: bool
 
 
 class ChatSettingsUpdateRequest(BaseModel):
     """Partial update of the current user's settings for a chat."""
 
     notifications_muted: bool | None = None
+    is_pinned: bool | None = None

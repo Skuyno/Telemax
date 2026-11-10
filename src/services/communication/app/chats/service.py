@@ -14,6 +14,7 @@ from app.chats.schemas import (
     AddGroupMembersRequest,
     CreateDirectChatRequest,
     CreateGroupChatRequest,
+    ForwardMessageRequest,
     SendMessageRequest,
     UpdateGroupChatRequest,
 )
@@ -296,6 +297,79 @@ async def send_message(
     return msg
 
 
+async def forward_message(
+    db: AsyncSession, chat_id: UUID, user_id: UUID, data: ForwardMessageRequest
+) -> Message:
+    """Copy an existing message (and its attachments) into another chat.
+
+    The new message is its own independent row, not a live reference — if
+    the original is later edited or deleted, this copy is unaffected.
+    `forwarded_from_sender_id` is snapshotted at forward time for the same
+    reason, rather than resolved via a join at read time.
+
+    Args:
+        db: Async database session.
+        chat_id: Id of the chat to forward into.
+        user_id: Id of the user forwarding the message.
+        data: The source message to copy, and an idempotency key for the
+            new one.
+
+    Returns:
+        Message: The newly created (or, on a retried request, existing)
+        forwarded message.
+
+    Raises:
+        HTTPException: 403 if the user isn't a member of either chat, or
+            the target chat is read-only; 404 if the source message
+            doesn't exist in the source chat or was deleted.
+    """
+    await _require_membership(db, chat_id, user_id)
+    await _require_membership(db, data.source_chat_id, user_id)
+
+    chat = await chats_repository.get_chat(db, chat_id)
+    if chat is not None and chat.type == "notifications":
+        raise HTTPException(status_code=403, detail="this chat is read-only")
+
+    source = await chats_repository.get_message(
+        db, data.source_chat_id, data.source_message_id
+    )
+    if source is None or source.is_deleted:
+        raise HTTPException(status_code=404, detail="message not found")
+
+    attachment_ids = await chats_repository.get_attachment_ids(db, source.id)
+
+    msg, created = await chats_repository.create_message(
+        db,
+        chat_id,
+        user_id,
+        source.body,
+        data.client_msg_id,
+        forwarded_from_message_id=source.id,
+        forwarded_from_sender_id=source.sender_id,
+    )
+
+    if created:
+        await chats_repository.add_attachments(db, msg.id, attachment_ids)
+
+    await db.commit()
+
+    recipient_ids = await _get_recipient_ids(db, chat_id)
+    await nats_client.publish(
+        SUBJECT_MESSAGE_CREATED,
+        {
+            "id": str(msg.id),
+            "chat_id": str(msg.chat_id),
+            "sender_id": str(msg.sender_id),
+            "recipient_ids": recipient_ids,
+            "body": msg.body,
+            "attachment_file_ids": [str(fid) for fid in attachment_ids],
+            "created_at": msg.created_at.isoformat(),
+        },
+    )
+
+    return msg
+
+
 async def get_chat_messages(
     db: AsyncSession,
     chat_id: UUID,
@@ -534,6 +608,22 @@ async def mark_chat_read(
             "recipient_ids": recipient_ids,
         },
     )
+
+
+async def get_messages_by_ids(
+    db: AsyncSession, message_ids: Sequence[UUID]
+) -> list[Message]:
+    """Fetch messages by id, in no particular order.
+
+    Args:
+        db: Async database session.
+        message_ids: Ids of messages to fetch.
+
+    Returns:
+        list[Message]: Matching messages; ids with no matching row are
+            simply absent.
+    """
+    return await chats_repository.get_messages_by_ids(db, message_ids)
 
 
 async def get_attachment_ids(db: AsyncSession, message_id: UUID) -> list[UUID]:

@@ -16,12 +16,14 @@ from app.chats.schemas import (
     CreateGroupChatRequest,
     CreateGroupChatResponse,
     EditMessageRequest,
+    ForwardMessageRequest,
     MarkChatReadRequest,
     MessageResponse,
     SendMessageRequest,
     UpdateGroupChatRequest,
 )
 from app.dependencies import get_async_db, get_current_user_id
+from app.settings import service as settings_service
 
 router = APIRouter(prefix="/chats")
 
@@ -81,8 +83,9 @@ async def list_user_chats(
     chat_ids = [chat.id for chat, _ in chats_with_titles]
     last_messages = await chats_service.get_last_messages(db, chat_ids)
     unread_counts = await chats_service.get_unread_counts(db, user_id, chat_ids)
+    pinned_at_by_chat = await settings_service.list_pinned_chat_ids(db, user_id)
 
-    return [
+    responses = [
         ChatResponse(
             id=chat.id,
             type=chat.type,
@@ -93,9 +96,23 @@ async def list_user_chats(
             title="Уведомления" if chat.type == "notifications" else title,
             last_message=last_messages.get(chat.id),
             unread_count=unread_counts.get(chat.id, 0),
+            is_pinned=chat.id in pinned_at_by_chat,
         )
         for chat, title in chats_with_titles
     ]
+
+    # Pinned chats float to the top (most recently pinned first); within
+    # each group, most recent activity first. datetime.min as the fallback
+    # sort key keeps chats with no messages yet at the bottom of their group
+    # without needing a separate None-handling branch.
+    responses.sort(
+        key=lambda c: (
+            not c.is_pinned,
+            -(pinned_at_by_chat[c.id].timestamp() if c.is_pinned else 0),
+            -(c.last_message.created_at.timestamp() if c.last_message else 0),
+        )
+    )
+    return responses
 
 
 @router.get("/{chat_id}/members", tags=["Chats"])
@@ -193,6 +210,29 @@ async def send_message(
         creation timestamp
     """
     msg = await chats_service.send_message(db, chat_id, user_id, data)
+    attachment_ids = await chats_service.get_attachment_ids(db, msg.id)
+    return _to_message_response(msg, attachment_ids)
+
+
+@router.post("/{chat_id}/messages/forward", status_code=201, tags=["Messages"])
+async def forward_message(
+    chat_id: UUID,
+    data: ForwardMessageRequest,
+    user_id: UUID = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_async_db),
+) -> MessageResponse:
+    """Forward an existing message from another chat into this one.
+
+    Args:
+        chat_id: Id of the chat to forward into.
+        data: The source message to copy, and an idempotency key.
+        user_id: User id trusted from the X-User-Id header.
+        db: Async database session.
+
+    Returns:
+        MessageResponse: The newly created forwarded message.
+    """
+    msg = await chats_service.forward_message(db, chat_id, user_id, data)
     attachment_ids = await chats_service.get_attachment_ids(db, msg.id)
     return _to_message_response(msg, attachment_ids)
 

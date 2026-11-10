@@ -247,6 +247,43 @@ async def admin_reset_password(
     )
 
 
+async def change_role(
+    db: AsyncSession, caller_id: UUID, target_id: UUID, new_role: str
+) -> User:
+    """Change an account's role (internal — no role-permission check).
+
+    Called by the administration service, which has already verified the
+    requesting user is a superuser. Two invariants are still enforced
+    here regardless, since they're properties of the system, not a
+    matter of "who's allowed": the superuser account's role can never be
+    changed, and an account can't change its own role through this action.
+
+    Args:
+        db: Async database session.
+        caller_id: Id of the account requesting the change.
+        target_id: Id of the account whose role is being changed.
+        new_role: The new role to assign ("admin" or "user").
+
+    Raises:
+        HTTPException: 400 if the caller targets their own account, 404
+            if the target doesn't exist, 403 if the target is the
+            superuser.
+    """
+    if target_id == caller_id:
+        raise HTTPException(status_code=400, detail="Cannot change your own role")
+
+    target = await users_repository.get_user_by_id(db, target_id)
+    if target is None:
+        raise HTTPException(status_code=404, detail="Account not found")
+
+    if target.role == SUPERUSER:
+        raise HTTPException(
+            status_code=403, detail="Cannot change this account's role"
+        )
+
+    return await users_repository.update_user(db, target, {"role": new_role})
+
+
 async def list_accounts(db: AsyncSession, limit: int, offset: int) -> Sequence[User]:
     """List accounts for an admin-management screen.
 

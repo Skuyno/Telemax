@@ -41,6 +41,7 @@ class ChatResponse(BaseModel):
     title: str | None = None
     last_message: MessagePreview | None
     unread_count: int = 0
+    is_pinned: bool = False
 
 
 class ChatMembersResponse(BaseModel):
@@ -86,6 +87,16 @@ class MessageResponse(BaseModel):
     is_deleted: bool
     created_at: datetime
     attachment_file_ids: list[UUID] = Field(default_factory=list)
+    forwarded_from_message_id: UUID | None = None
+    forwarded_from_sender_id: UUID | None = None
+
+
+class ForwardMessageRequest(BaseModel):
+    """Request to forward an existing message into another chat."""
+
+    source_chat_id: UUID
+    source_message_id: UUID
+    client_msg_id: UUID
 
 
 class CreateGroupChatRequest(BaseModel):
