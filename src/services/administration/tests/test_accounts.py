@@ -315,6 +315,119 @@ async def test_cannot_reset_own_password_via_admin_endpoint(
     assert resp.status_code == 400
 
 
+# --- change role -------------------------------------------------------------
+
+
+async def test_superuser_can_promote_user_to_admin(client: AsyncClient, seed_account):
+    """A superuser can change a plain user's role to admin."""
+    superuser_id = seed_account("superuser")
+    target_id = seed_account("user")
+
+    resp = await client.post(
+        f"/admin/accounts/{target_id}/role",
+        json={"role": "admin"},
+        headers={"X-User-Id": superuser_id},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["role"] == "admin"
+
+
+async def test_superuser_can_demote_admin_to_user(client: AsyncClient, seed_account):
+    """A superuser can change an admin's role back to plain user."""
+    superuser_id = seed_account("superuser")
+    target_id = seed_account("admin")
+
+    resp = await client.post(
+        f"/admin/accounts/{target_id}/role",
+        json={"role": "user"},
+        headers={"X-User-Id": superuser_id},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["role"] == "user"
+
+
+async def test_admin_cannot_change_any_role(client: AsyncClient, seed_account):
+    """An admin can't call this action at all, not even on a plain user."""
+    admin_id = seed_account("admin")
+    target_id = seed_account("user")
+
+    resp = await client.post(
+        f"/admin/accounts/{target_id}/role",
+        json={"role": "admin"},
+        headers={"X-User-Id": admin_id},
+    )
+    assert resp.status_code == 403
+
+
+async def test_plain_user_cannot_change_any_role(client: AsyncClient, seed_account):
+    """A plain user has no access to this endpoint at all."""
+    user_id = seed_account("user")
+    target_id = seed_account("user")
+
+    resp = await client.post(
+        f"/admin/accounts/{target_id}/role",
+        json={"role": "admin"},
+        headers={"X-User-Id": user_id},
+    )
+    assert resp.status_code == 403
+
+
+async def test_superuser_cannot_change_own_role(client: AsyncClient, seed_account):
+    """Self-targeting is refused, even for a superuser."""
+    superuser_id = seed_account("superuser")
+
+    resp = await client.post(
+        f"/admin/accounts/{superuser_id}/role",
+        json={"role": "admin"},
+        headers={"X-User-Id": superuser_id},
+    )
+    assert resp.status_code == 400
+
+
+async def test_superuser_cannot_change_another_superusers_role(
+    client: AsyncClient, seed_account
+):
+    """Nobody can change a superuser account's role through this endpoint."""
+    superuser_id = seed_account("superuser")
+    other_superuser_id = seed_account("superuser")
+
+    resp = await client.post(
+        f"/admin/accounts/{other_superuser_id}/role",
+        json={"role": "admin"},
+        headers={"X-User-Id": superuser_id},
+    )
+    assert resp.status_code == 403
+
+
+async def test_change_role_nonexistent_account_is_404(
+    client: AsyncClient, seed_account
+):
+    """Changing the role of an id identity doesn't recognize returns 404."""
+    superuser_id = seed_account("superuser")
+
+    resp = await client.post(
+        f"/admin/accounts/{uuid4()}/role",
+        json={"role": "admin"},
+        headers={"X-User-Id": superuser_id},
+    )
+    assert resp.status_code == 404
+
+
+async def test_change_role_rejects_invalid_role_value(
+    client: AsyncClient, seed_account
+):
+    """The role field is restricted to admin|user — superuser is never acceptable."""
+    superuser_id = seed_account("superuser")
+    target_id = seed_account("user")
+
+    resp = await client.post(
+        f"/admin/accounts/{target_id}/role",
+        json={"role": "superuser"},
+        headers={"X-User-Id": superuser_id},
+    )
+    assert resp.status_code == 422
+
+
 # --- broadcast ---------------------------------------------------------------
 
 

@@ -62,6 +62,13 @@ class Message(Base):
     client_msg_id: Mapped[UUID | None]
     edited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     is_deleted: Mapped[bool] = mapped_column(default=False, server_default="false")
+    # Both set only on a forwarded message's own copy, never on the
+    # original. forwarded_from_sender_id is a snapshot (not derived via a
+    # join) so attribution survives the original being edited or deleted.
+    forwarded_from_message_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("messages.id")
+    )
+    forwarded_from_sender_id: Mapped[UUID | None]
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

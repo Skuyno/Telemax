@@ -16,6 +16,7 @@ from app.accounts.schemas import (
     BroadcastChatResponse,
     BroadcastRequest,
     BroadcastResponse,
+    ChangeRoleRequest,
     CreateAccountRequest,
     UsernameAvailableResponse,
 )
@@ -128,6 +129,30 @@ async def admin_reset_password(
     return await accounts_service.admin_reset_password(
         caller_id, account_id, data.new_password
     )
+
+
+@router.post("/accounts/{account_id}/role")
+async def change_role(
+    account_id: UUID,
+    data: ChangeRoleRequest,
+    caller_id: UUID = Depends(get_current_user_id),
+) -> AccountResponse:
+    """Change a target account's role.
+
+    Args:
+        account_id: Id of the account whose role to change.
+        data: The new role.
+        caller_id: User id trusted from the X-User-Id header (set by API Gateway).
+
+    Returns:
+        AccountResponse: The account with its updated role.
+
+    Raises:
+        HTTPException: 400 if targeting the caller's own account, 403 if
+            the caller isn't a superuser or the target is the superuser,
+            404 if not found.
+    """
+    return await accounts_service.change_role(caller_id, account_id, data.role)
 
 
 @router.post("/broadcast/chat")

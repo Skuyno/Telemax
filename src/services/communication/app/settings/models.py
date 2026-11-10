@@ -15,7 +15,7 @@ from app.database import Base
 
 
 class ChatSettings(Base):
-    """Per-user settings for a single chat, e.g. notification muting."""
+    """Per-user settings for a single chat, e.g. notification muting and pinning."""
 
     __tablename__ = "chat_settings"
 
@@ -24,6 +24,13 @@ class ChatSettings(Base):
     notifications_muted: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default="false"
     )
+    is_pinned: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false"
+    )
+    # Set/cleared alongside is_pinned (see app/settings/service.py) — lets
+    # multiple pinned chats be ordered most-recently-pinned first instead of
+    # arbitrarily.
+    pinned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )

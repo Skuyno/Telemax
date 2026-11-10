@@ -39,6 +39,14 @@ export function useAdmin() {
     return api<UserResponse>(`/admin/accounts/${accountId}/unblock`, { method: 'POST' })
   }
 
+  /** Superuser-only — promotes/demotes between "admin" and "user". */
+  async function changeRole(accountId: string, role: Role): Promise<UserResponse> {
+    return api<UserResponse>(`/admin/accounts/${accountId}/role`, {
+      method: 'POST',
+      body: { role },
+    })
+  }
+
   /** Admin-initiated reset — no current password needed, unlike the self-service one. */
   async function resetAccountPassword(
     accountId: string,
@@ -75,6 +83,7 @@ export function useAdmin() {
     deleteAccount,
     blockAccount,
     unblockAccount,
+    changeRole,
     resetAccountPassword,
     getBroadcastChat,
     sendBroadcast,

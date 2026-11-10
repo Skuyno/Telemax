@@ -260,6 +260,61 @@ async def test_internal_admin_reset_password_refuses_superuser_target(
     assert resp.status_code == 403
 
 
+async def test_internal_change_role(client: AsyncClient, db_session_maker):
+    """Changing a role actually updates the role column."""
+    caller_id = await _create_account(db_session_maker, SUPERUSER)
+    target_id = await _create_account(db_session_maker, USER)
+
+    resp = await client.post(
+        f"/internal/accounts/{target_id}/role",
+        params={"caller_id": str(caller_id)},
+        json={"role": "admin"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["role"] == "admin"
+
+
+async def test_internal_change_role_refuses_superuser_target(
+    client: AsyncClient, db_session_maker
+):
+    """The superuser account's role can never be changed, regardless of caller."""
+    caller_id = await _create_account(db_session_maker, ADMIN)
+    superuser_id = await _create_account(db_session_maker, SUPERUSER)
+
+    resp = await client.post(
+        f"/internal/accounts/{superuser_id}/role",
+        params={"caller_id": str(caller_id)},
+        json={"role": "user"},
+    )
+    assert resp.status_code == 403
+
+
+async def test_internal_change_role_refuses_self_target(
+    client: AsyncClient, db_session_maker
+):
+    """An account can't change its own role through this action."""
+    caller_id = await _create_account(db_session_maker, SUPERUSER)
+
+    resp = await client.post(
+        f"/internal/accounts/{caller_id}/role",
+        params={"caller_id": str(caller_id)},
+        json={"role": "admin"},
+    )
+    assert resp.status_code == 400
+
+
+async def test_internal_change_role_not_found(client: AsyncClient, db_session_maker):
+    """A nonexistent target returns 404."""
+    caller_id = await _create_account(db_session_maker, SUPERUSER)
+
+    resp = await client.post(
+        f"/internal/accounts/{uuid4()}/role",
+        params={"caller_id": str(caller_id)},
+        json={"role": "admin"},
+    )
+    assert resp.status_code == 404
+
+
 async def test_internal_username_available_check(client: AsyncClient, db_session_maker):
     """Reports a free username as available, a taken one as not."""
     await _create_account(db_session_maker, USER, username="taken")

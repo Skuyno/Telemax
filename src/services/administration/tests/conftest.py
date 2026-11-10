@@ -112,6 +112,19 @@ def mock_identity(identity_db, communication_calls):
             account["blocked"] = False
             return _FakeResponse(200, _account_payload(target_id, account))
 
+        if url.endswith("/role"):
+            target_id = url.rsplit("/", 2)[-2]
+            caller_id = params["caller_id"]
+            if target_id == caller_id:
+                return _FakeResponse(400)
+            account = identity_db.get(target_id)
+            if account is None:
+                return _FakeResponse(404)
+            if account["role"] == "superuser":
+                return _FakeResponse(403)
+            account["role"] = json["role"]
+            return _FakeResponse(200, _account_payload(target_id, account))
+
         if url.endswith("/password"):
             target_id = url.rsplit("/", 2)[-2]
             caller_id = params["caller_id"]

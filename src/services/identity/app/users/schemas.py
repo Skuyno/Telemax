@@ -131,6 +131,18 @@ class AdminResetPasswordRequest(BaseModel):
     new_password: str = Field(min_length=8, max_length=256)
 
 
+class ChangeRoleRequest(BaseModel):
+    """Request to change a target account's role.
+
+    role never allows "superuser" — same restriction as
+    CreateAccountRequest.role, for the same reason: that account is
+    provisioned once, automatically, and can't be assigned through this
+    API no matter who's asking.
+    """
+
+    role: str = Field(pattern="^(admin|user)$")
+
+
 class UsernameAvailableResponse(BaseModel):
     """Whether a username is free to register/create an account with."""
 
