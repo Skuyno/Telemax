@@ -267,6 +267,7 @@ async def create_message(
     client_msg_id: UUID,
     forwarded_from_message_id: UUID | None = None,
     forwarded_from_sender_id: UUID | None = None,
+    reply_to_message_id: UUID | None = None,
 ) -> tuple[Message, bool]:
     """Create a new message or return an existing one if client_msg_id is duplicated.
 
@@ -280,6 +281,7 @@ async def create_message(
             forwarded copy.
         forwarded_from_sender_id: Id of the original message's sender, if
             this is a forwarded copy.
+        reply_to_message_id: Id of the message being replied to, if any.
 
     Doesn't commit — callers that also need to attach files in the same
     request (e.g. `send_message`) do that first and commit once at the
@@ -298,6 +300,7 @@ async def create_message(
         client_msg_id=client_msg_id,
         forwarded_from_message_id=forwarded_from_message_id,
         forwarded_from_sender_id=forwarded_from_sender_id,
+        reply_to_message_id=reply_to_message_id,
     )
     try:
         async with db.begin_nested():

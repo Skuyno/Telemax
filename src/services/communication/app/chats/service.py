@@ -248,7 +248,9 @@ async def send_message(
         HTTPException: 403 if the sender is not a member of the chat, or if
             the chat is a personal "Уведомления" chat (read-only for
             everyone — the only way a message lands there is a broadcast,
-            see broadcast_message below, never this endpoint).
+            see broadcast_message below, never this endpoint). 404 if
+            `reply_to_message_id` doesn't name an existing, non-deleted
+            message in this same chat.
     """
     await _require_membership(db, chat_id, user_id)
 
@@ -256,10 +258,22 @@ async def send_message(
     if chat is not None and chat.type == "notifications":
         raise HTTPException(status_code=403, detail="this chat is read-only")
 
+    if data.reply_to_message_id is not None:
+        replied_to = await chats_repository.get_message(
+            db, chat_id, data.reply_to_message_id
+        )
+        if replied_to is None or replied_to.is_deleted:
+            raise HTTPException(status_code=404, detail="replied-to message not found")
+
     await _validate_attachments(chat_id, data.attachment_file_ids)
 
     msg, created = await chats_repository.create_message(
-        db, chat_id, user_id, data.body, data.client_msg_id
+        db,
+        chat_id,
+        user_id,
+        data.body,
+        data.client_msg_id,
+        reply_to_message_id=data.reply_to_message_id,
     )
 
     if msg.chat_id != chat_id or msg.body != data.body:

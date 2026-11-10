@@ -69,6 +69,12 @@ class Message(Base):
         ForeignKey("messages.id")
     )
     forwarded_from_sender_id: Mapped[UUID | None]
+    # Set when this message is a reply to another one in the *same* chat
+    # (unlike forwarded_from_message_id, which always crosses chats). Kept
+    # as a live reference, not a snapshot — if the replied-to message is
+    # later edited, the reply preview should reflect that; if it's deleted,
+    # `is_deleted` on the referenced row still tells readers so.
+    reply_to_message_id: Mapped[UUID | None] = mapped_column(ForeignKey("messages.id"))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
