@@ -19,6 +19,7 @@ const { editMessage, deleteMessage, loadUntil } = useChats()
 const composer = ref<{ reset: () => void; focus: () => void } | null>(null)
 const editing = ref<Message | null>(null)
 const replyingTo = ref<Message | null>(null)
+const forwarding = ref<Message | null>(null)
 const pendingRemoval = ref<Message | null>(null)
 const isRemoving = ref(false)
 const isSending = ref(false)
@@ -74,6 +75,19 @@ function authorLabel(senderId: string) {
   return props.chat.title
 }
 
+function forwardedName(message: Message) {
+  const senderId = message.forwardedFromSenderId
+  if (!senderId) return undefined
+  if (senderId === props.meId) return 'Вы'
+  if (senderId === props.chat.peerId && props.chat.type === 'direct') return props.chat.title
+  return chatStore.profileByUserId[senderId]?.title ?? 'Пользователь'
+}
+
+function onForwarded(chatId: string) {
+  forwarding.value = null
+  chatStore.setActiveChat(chatId)
+}
+
 function previewText(message: Message) {
   if (message.isDeleted) return 'Сообщение удалено'
   return message.body || 'Вложение'
@@ -118,13 +132,14 @@ const menuItems = computed(() => {
   const own = message.senderId === props.meId
   return [
     ...(isNotifications.value ? [] : [{ key: 'reply', label: 'Ответить' }]),
+    { key: 'forward', label: 'Переслать' },
     ...(own && message.body ? [{ key: 'edit', label: 'Изменить' }] : []),
     ...(own ? [{ key: 'remove', label: 'Удалить' }] : []),
   ]
 })
 
 function openMessageMenu(message: Message, x: number, y: number) {
-  const height = 12 + MESSAGE_MENU_ITEM_HEIGHT * 3
+  const height = 12 + MESSAGE_MENU_ITEM_HEIGHT * 4
   messageMenu.value = {
     message,
     x: Math.max(8, Math.min(x, window.innerWidth - MESSAGE_MENU_WIDTH - 8)),
@@ -141,6 +156,7 @@ function onMessageMenuAction(key: string) {
   closeMessageMenu()
   if (!message) return
   if (key === 'reply') startReply(message)
+  else if (key === 'forward') forwarding.value = message
   else if (key === 'edit') startEdit(message)
   else if (key === 'remove') onRemove(message)
 }
@@ -359,6 +375,7 @@ watch(
     sendError.value = ''
     editing.value = null
     replyingTo.value = null
+    forwarding.value = null
     messageMenu.value = null
     searchOpen.value = false
     membersOpen.value = false
@@ -445,6 +462,7 @@ watch(
           :hide-status="chat.isSaved"
           :highlighted="highlightedId === message.id"
           :quote="quoteFor(message)"
+          :forwarded-from="forwardedName(message)"
           :can-reply="!isNotifications"
           @edit="startEdit(message)"
           @remove="onRemove(message)"
@@ -495,6 +513,13 @@ watch(
       @cancel="pendingRemoval = null"
     />
 
+    <ChatForwardPicker
+      v-if="forwarding"
+      :message="forwarding"
+      @close="forwarding = null"
+      @forwarded="onForwarded"
+    />
+
     <Teleport to="body">
       <Transition name="message-menu">
         <div
@@ -517,6 +542,10 @@ watch(
               <path
                 v-if="item.key === 'reply'"
                 d="M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z"
+              />
+              <path
+                v-else-if="item.key === 'forward'"
+                d="M14 9V5l7 7-7 7v-4.1c-5 0-8.5 1.6-11 5.1 1-5 4-10 11-11z"
               />
               <template v-else-if="item.key === 'edit'">
                 <path d="M4 20h4L19 9l-4-4L4 16v4z" />

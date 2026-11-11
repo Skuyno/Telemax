@@ -28,6 +28,7 @@ export interface Message {
   isDeleted: boolean
   attachmentIds: string[]
   replyToId?: string | null
+  forwardedFromSenderId?: string | null
 }
 
 export interface Attachment {
@@ -105,6 +106,7 @@ export interface MessageResponse {
   created_at: string
   attachment_file_ids: string[]
   reply_to_message_id?: string | null
+  forwarded_from_sender_id?: string | null
 }
 
 export interface FileResponse {

@@ -33,7 +33,14 @@ function toMessage(raw: MessageResponse): Message {
     isDeleted: raw.is_deleted,
     attachmentIds: raw.attachment_file_ids ?? [],
     replyToId: raw.reply_to_message_id ?? null,
+    forwardedFromSenderId: raw.forwarded_from_sender_id ?? null,
   }
+}
+
+function authorIds(page: MessageResponse[]): string[] {
+  return page.flatMap((raw) =>
+    raw.forwarded_from_sender_id ? [raw.sender_id, raw.forwarded_from_sender_id] : [raw.sender_id],
+  )
 }
 
 function isPageActive(): boolean {
@@ -128,7 +135,7 @@ export function useChats() {
       query: { limit: PAGE_SIZE },
     })
     chatStore.setMessages(chatId, page.map(toMessage).reverse(), page.length === PAGE_SIZE)
-    ensureProfiles(page.map((raw) => raw.sender_id))
+    ensureProfiles(authorIds(page))
   }
 
   async function loadOlderMessages(chatId: string) {
@@ -141,7 +148,7 @@ export function useChats() {
         query: { limit: PAGE_SIZE, before_msg_id: oldest.id },
       })
       chatStore.prependMessages(chatId, page.map(toMessage).reverse(), page.length === PAGE_SIZE)
-      ensureProfiles(page.map((raw) => raw.sender_id))
+      ensureProfiles(authorIds(page))
     } finally {
       loadingOlder.delete(chatId)
     }
@@ -167,6 +174,19 @@ export function useChats() {
       },
     })
     chatStore.addMessage(toMessage(saved))
+  }
+
+  async function forwardMessage(targetChatId: string, source: Message) {
+    const saved = await api<MessageResponse>(`/chats/${targetChatId}/messages/forward`, {
+      method: 'POST',
+      body: {
+        source_chat_id: source.chatId,
+        source_message_id: source.id,
+        client_msg_id: randomId(),
+      },
+    })
+    chatStore.addMessage(toMessage(saved))
+    ensureProfiles(authorIds([saved]))
   }
 
   async function editMessage(chatId: string, messageId: string, body: string) {
@@ -482,7 +502,11 @@ export function useChats() {
       if (raw.reply_to_message_id) {
         chatStore.patchMessage(chatId, raw.id, { replyToId: raw.reply_to_message_id })
       }
+      if (raw.forwarded_from_sender_id) {
+        chatStore.patchMessage(chatId, raw.id, { forwardedFromSenderId: raw.forwarded_from_sender_id })
+      }
     }
+    ensureProfiles(authorIds(recent))
   }
 
   async function markRead(chatId: string, lastMessageId?: string) {
@@ -516,6 +540,7 @@ export function useChats() {
     loadMessages,
     loadOlderMessages,
     sendMessage,
+    forwardMessage,
     searchUsers,
     openChatWith,
     openSavedChat,

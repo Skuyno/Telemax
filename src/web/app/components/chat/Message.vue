@@ -12,6 +12,7 @@ const props = defineProps<{
   hideStatus?: boolean
   highlighted?: boolean
   quote?: { authorName: string; body: string } | null
+  forwardedFrom?: string
   canReply?: boolean
 }>()
 
@@ -63,6 +64,12 @@ const hasCaption = computed(() => hasMedia.value && Boolean(props.message.body))
       <p v-if="message.isDeleted" class="bubble__body is-deleted">Сообщение удалено</p>
 
       <template v-else>
+        <p v-if="forwardedFrom" class="bubble__forwarded">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <path d="M14 9V5l7 7-7 7v-4.1c-5 0-8.5 1.6-11 5.1 1-5 4-10 11-11z" />
+          </svg>
+          Переслано от <b>{{ forwardedFrom }}</b>
+        </p>
         <button
           v-if="quote"
           type="button"
@@ -295,6 +302,41 @@ const hasCaption = computed(() => hasMedia.value && Boolean(props.message.body))
   background: transparent;
   border-style: dashed;
   border-color: var(--chat-line);
+}
+
+.bubble__forwarded {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+.bubble__forwarded b {
+  overflow: hidden;
+  font-family: var(--font-heading);
+  font-weight: 600;
+  color: var(--color-accent);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bubble.is-own .bubble__forwarded,
+.bubble.is-own .bubble__forwarded b {
+  color: var(--color-ink);
+}
+
+.bubble__forwarded svg {
+  width: 13px;
+  height: 13px;
+  flex: none;
+}
+
+.bubble.has-media .bubble__forwarded {
+  padding: 8px 12px 6px;
 }
 
 .bubble__quote {
