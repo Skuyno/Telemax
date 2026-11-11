@@ -6,7 +6,7 @@ const props = defineProps<{
   chat: Chat
   messages: Message[]
   meId: string
-  send: (text: string, attachmentIds: string[]) => Promise<void>
+  send: (text: string, attachmentIds: string[], replyToId: string | null) => Promise<void>
   loadError?: string
 }>()
 
@@ -18,6 +18,7 @@ const { editMessage, deleteMessage, loadUntil } = useChats()
 
 const composer = ref<{ reset: () => void; focus: () => void } | null>(null)
 const editing = ref<Message | null>(null)
+const replyingTo = ref<Message | null>(null)
 const pendingRemoval = ref<Message | null>(null)
 const isRemoving = ref(false)
 const isSending = ref(false)
@@ -64,6 +65,111 @@ function senderAvatar(senderId: string) {
   if (isGroup.value) return chatStore.profileByUserId[senderId]?.avatarUrl ?? null
   return props.chat.avatarUrl
 }
+
+const messageById = computed(() => new Map(props.messages.map((message) => [message.id, message])))
+
+function authorLabel(senderId: string) {
+  if (senderId === props.meId) return 'Вы'
+  if (isGroup.value) return senderName(senderId)
+  return props.chat.title
+}
+
+function previewText(message: Message) {
+  if (message.isDeleted) return 'Сообщение удалено'
+  return message.body || 'Вложение'
+}
+
+function quoteFor(message: Message) {
+  if (!message.replyToId) return null
+  const original = messageById.value.get(message.replyToId)
+  if (!original) return { authorName: 'Ответ', body: 'Сообщение выше в переписке' }
+  return { authorName: authorLabel(original.senderId), body: previewText(original) }
+}
+
+const replyPreview = computed(() =>
+  replyingTo.value
+    ? {
+        id: replyingTo.value.id,
+        authorName: authorLabel(replyingTo.value.senderId),
+        body: previewText(replyingTo.value),
+      }
+    : null,
+)
+
+function startReply(message: Message) {
+  editing.value = null
+  replyingTo.value = message
+  sendError.value = ''
+}
+
+function jumpToReply(message: Message) {
+  if (message.replyToId) jumpTo({ ...message, id: message.replyToId })
+}
+
+const MESSAGE_MENU_WIDTH = 200
+const MESSAGE_MENU_ITEM_HEIGHT = 44
+
+const messageMenu = ref<{ message: Message; x: number; y: number } | null>(null)
+const messageMenuRoot = ref<HTMLElement | null>(null)
+
+const menuItems = computed(() => {
+  const message = messageMenu.value?.message
+  if (!message) return []
+  const own = message.senderId === props.meId
+  return [
+    ...(isNotifications.value ? [] : [{ key: 'reply', label: 'Ответить' }]),
+    ...(own && message.body ? [{ key: 'edit', label: 'Изменить' }] : []),
+    ...(own ? [{ key: 'remove', label: 'Удалить' }] : []),
+  ]
+})
+
+function openMessageMenu(message: Message, x: number, y: number) {
+  const height = 12 + MESSAGE_MENU_ITEM_HEIGHT * 3
+  messageMenu.value = {
+    message,
+    x: Math.max(8, Math.min(x, window.innerWidth - MESSAGE_MENU_WIDTH - 8)),
+    y: Math.max(8, Math.min(y, window.innerHeight - height - 8)),
+  }
+}
+
+function closeMessageMenu() {
+  messageMenu.value = null
+}
+
+function onMessageMenuAction(key: string) {
+  const message = messageMenu.value?.message
+  closeMessageMenu()
+  if (!message) return
+  if (key === 'reply') startReply(message)
+  else if (key === 'edit') startEdit(message)
+  else if (key === 'remove') onRemove(message)
+}
+
+function onMessageMenuPointerDown(event: PointerEvent) {
+  if (!messageMenuRoot.value?.contains(event.target as Node)) closeMessageMenu()
+}
+
+function onMessageMenuKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape') closeMessageMenu()
+}
+
+watch(messageMenu, (menu, previous) => {
+  if (menu && !previous) {
+    window.addEventListener('pointerdown', onMessageMenuPointerDown)
+    window.addEventListener('keydown', onMessageMenuKeydown)
+    window.addEventListener('resize', closeMessageMenu)
+  } else if (!menu) {
+    window.removeEventListener('pointerdown', onMessageMenuPointerDown)
+    window.removeEventListener('keydown', onMessageMenuKeydown)
+    window.removeEventListener('resize', closeMessageMenu)
+  }
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('pointerdown', onMessageMenuPointerDown)
+  window.removeEventListener('keydown', onMessageMenuKeydown)
+  window.removeEventListener('resize', closeMessageMenu)
+})
 
 const typingLabel = computed(() => {
   if (!isGroup.value) return 'печатает'
@@ -133,7 +239,8 @@ async function onSubmit(text: string, attachmentIds: string[]) {
   isSending.value = true
   sendError.value = ''
   try {
-    await props.send(text, attachmentIds)
+    await props.send(text, attachmentIds, replyingTo.value?.id ?? null)
+    replyingTo.value = null
     composer.value?.reset()
   } catch (e) {
     // Черновик не очищаем — чтобы можно было отправить ещё раз.
@@ -144,6 +251,7 @@ async function onSubmit(text: string, attachmentIds: string[]) {
 }
 
 function startEdit(message: Message) {
+  replyingTo.value = null
   editing.value = message
   sendError.value = ''
 }
@@ -166,6 +274,7 @@ async function confirmRemove() {
   try {
     await deleteMessage(props.chat.id, message.id)
     if (editing.value?.id === message.id) cancelEdit()
+    if (replyingTo.value?.id === message.id) replyingTo.value = null
   } catch (e) {
     sendError.value = extractApiErrorMessage(e, 'Не удалось удалить сообщение')
   } finally {
@@ -194,6 +303,7 @@ function onScroll() {
   const el = feed.value
   if (!el) return
 
+  closeMessageMenu()
   pinnedToBottom.value = el.scrollHeight - el.scrollTop - el.clientHeight < 90
   if (el.scrollTop < 40) emit('loadOlder')
 }
@@ -248,6 +358,8 @@ watch(
   () => {
     sendError.value = ''
     editing.value = null
+    replyingTo.value = null
+    messageMenu.value = null
     searchOpen.value = false
     membersOpen.value = false
     scrollToBottom()
@@ -332,8 +444,13 @@ watch(
           :read="chatStore.isMessageRead(message)"
           :hide-status="chat.isSaved"
           :highlighted="highlightedId === message.id"
+          :quote="quoteFor(message)"
+          :can-reply="!isNotifications"
           @edit="startEdit(message)"
           @remove="onRemove(message)"
+          @reply="startReply(message)"
+          @jump-reply="jumpToReply(message)"
+          @menu="(x, y) => openMessageMenu(message, x, y)"
         />
       </div>
 
@@ -361,9 +478,11 @@ watch(
       ref="composer"
       :chat-id="chat.id"
       :editing="editing"
+      :reply-to="replyPreview"
       :busy="isSending"
       @submit="onSubmit"
       @cancel-edit="cancelEdit"
+      @cancel-reply="replyingTo = null"
       @typing="emit('typing')"
     />
 
@@ -375,6 +494,45 @@ watch(
       @confirm="confirmRemove"
       @cancel="pendingRemoval = null"
     />
+
+    <Teleport to="body">
+      <Transition name="message-menu">
+        <div
+          v-if="messageMenu && menuItems.length"
+          ref="messageMenuRoot"
+          class="message-menu"
+          role="menu"
+          :style="{ left: `${messageMenu.x}px`, top: `${messageMenu.y}px` }"
+        >
+          <button
+            v-for="item in menuItems"
+            :key="item.key"
+            type="button"
+            class="message-menu__item"
+            :class="{ 'is-danger': item.key === 'remove' }"
+            role="menuitem"
+            @click="onMessageMenuAction(item.key)"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <path
+                v-if="item.key === 'reply'"
+                d="M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z"
+              />
+              <template v-else-if="item.key === 'edit'">
+                <path d="M4 20h4L19 9l-4-4L4 16v4z" />
+                <path d="M14 5l4 4" />
+              </template>
+              <template v-else>
+                <path d="M4 7h16" />
+                <path d="M9 7V4h6v3" />
+                <path d="M6 7l1 13h10l1-13" />
+              </template>
+            </svg>
+            {{ item.label }}
+          </button>
+        </div>
+      </Transition>
+    </Teleport>
   </section>
 </template>
 
@@ -619,6 +777,75 @@ watch(
 
   .dialog__feed {
     padding-inline: 14px;
+  }
+}
+
+.message-menu {
+  position: fixed;
+  z-index: 150;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 200px;
+  padding: 6px;
+  background: var(--color-lift);
+  border: 1px solid var(--color-line);
+  border-radius: 14px;
+  box-shadow: var(--shadow-hard);
+}
+
+.message-menu__item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 11px 12px;
+  background: none;
+  border: none;
+  border-radius: 10px;
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--color-text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.message-menu__item:hover {
+  background: var(--color-surface);
+  color: var(--color-accent);
+}
+
+.message-menu__item svg {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  color: var(--color-accent);
+}
+
+.message-menu__item.is-danger,
+.message-menu__item.is-danger svg,
+.message-menu__item.is-danger:hover {
+  color: var(--color-error);
+}
+
+.message-menu-enter-active,
+.message-menu-leave-active {
+  transition:
+    opacity 0.14s ease,
+    transform 0.14s ease;
+}
+
+.message-menu-enter-from,
+.message-menu-leave-to {
+  opacity: 0;
+  transform: translateY(-6px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .message-menu-enter-active,
+  .message-menu-leave-active {
+    transition: none;
   }
 }
 </style>

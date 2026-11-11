@@ -173,6 +173,9 @@ export const useChatStore = defineStore('chat', {
         if (message.attachmentIds.length && !existing.attachmentIds.length) {
           this.patchMessage(message.chatId, message.id, { attachmentIds: message.attachmentIds })
         }
+        if (message.replyToId && !existing.replyToId) {
+          this.patchMessage(message.chatId, message.id, { replyToId: message.replyToId })
+        }
         return
       }
       list.push(message)

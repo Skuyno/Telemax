@@ -27,6 +27,7 @@ export interface Message {
   editedAt: string | null
   isDeleted: boolean
   attachmentIds: string[]
+  replyToId?: string | null
 }
 
 export interface Attachment {
@@ -78,8 +79,8 @@ export interface ChatResponse {
   type: 'direct' | 'group' | 'notifications'
   title: string | null
   unread_count: number
-  last_message: {
   is_pinned: boolean
+  last_message: {
     body: string
     sender_id: string
     created_at: string
@@ -103,6 +104,7 @@ export interface MessageResponse {
   is_deleted: boolean
   created_at: string
   attachment_file_ids: string[]
+  reply_to_message_id?: string | null
 }
 
 export interface FileResponse {

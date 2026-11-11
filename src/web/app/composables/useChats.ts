@@ -32,6 +32,7 @@ function toMessage(raw: MessageResponse): Message {
     editedAt: raw.edited_at,
     isDeleted: raw.is_deleted,
     attachmentIds: raw.attachment_file_ids ?? [],
+    replyToId: raw.reply_to_message_id ?? null,
   }
 }
 
@@ -103,8 +104,8 @@ export function useChats() {
             unreadCount: chat.unread_count,
             memberCount: isGroup ? members[index]!.length : undefined,
             isSaved,
-            lastMessage: last
             pinnedRank: chat.is_pinned ? index : undefined,
+            lastMessage: last
               ? {
                   body: last.body,
                   createdAt: last.created_at,
@@ -146,14 +147,24 @@ export function useChats() {
     }
   }
 
-  async function sendMessage(chatId: string, body: string, attachmentIds: string[] = []) {
+  async function sendMessage(
+    chatId: string,
+    body: string,
+    attachmentIds: string[] = [],
+    replyToId: string | null = null,
+  ) {
     const text = body.trim()
     if (!text && !attachmentIds.length) return
 
     const saved = await api<MessageResponse>(`/chats/${chatId}/messages`, {
       method: 'POST',
       // client_msg_id — ключ идемпотентности: повтор запроса не создаст дубль.
-      body: { body: text, client_msg_id: randomId(), attachment_file_ids: attachmentIds },
+      body: {
+        body: text,
+        client_msg_id: randomId(),
+        attachment_file_ids: attachmentIds,
+        reply_to_message_id: replyToId,
+      },
     })
     chatStore.addMessage(toMessage(saved))
   }
@@ -335,6 +346,16 @@ export function useChats() {
     chatStore.patchChat(chatId, { title: next, initials: toInitials(next) })
   }
 
+  async function pinChat(chatId: string, pinned: boolean) {
+    chatStore.setPinned(chatId, pinned)
+    try {
+      await api(`/chats/${chatId}/settings`, { method: 'PATCH', body: { is_pinned: pinned } })
+    } catch (e) {
+      chatStore.setPinned(chatId, !pinned)
+      throw e
+    }
+  }
+
   async function openSavedChat() {
     const me = chatStore.meId
     if (!me) return
@@ -346,16 +367,6 @@ export function useChats() {
     }
 
     const chat = await api<{ id: string }>('/chats/direct', {
-  async function pinChat(chatId: string, pinned: boolean) {
-    chatStore.setPinned(chatId, pinned)
-    try {
-      await api(`/chats/${chatId}/settings`, { method: 'PATCH', body: { is_pinned: pinned } })
-    } catch (e) {
-      chatStore.setPinned(chatId, !pinned)
-      throw e
-    }
-  }
-
       method: 'POST',
       body: { peer_user_id: me },
     })
@@ -403,7 +414,7 @@ export function useChats() {
           attachmentIds: [],
         })
         if (data.chat_id === chatStore.activeChatId && data.sender_id !== chatStore.meId) {
-          syncAttachments(data.chat_id)
+          syncRecentMessages(data.chat_id)
         }
         ensureProfiles([data.sender_id])
 
@@ -460,13 +471,16 @@ export function useChats() {
     if (!chatStore.chats.some((chat) => chat.id === chatId)) chatStore.removeChat(chatId)
   }
 
-  async function syncAttachments(chatId: string) {
+  async function syncRecentMessages(chatId: string) {
     const recent = await api<MessageResponse[]>(`/chats/${chatId}/messages`, {
       query: { limit: 20 },
     }).catch(() => [])
     for (const raw of recent) {
       if (raw.attachment_file_ids?.length) {
         chatStore.patchMessage(chatId, raw.id, { attachmentIds: raw.attachment_file_ids })
+      }
+      if (raw.reply_to_message_id) {
+        chatStore.patchMessage(chatId, raw.id, { replyToId: raw.reply_to_message_id })
       }
     }
   }
@@ -505,6 +519,7 @@ export function useChats() {
     searchUsers,
     openChatWith,
     openSavedChat,
+    pinChat,
     createGroupChat,
     loadMembers,
     ensureProfiles,
@@ -519,6 +534,5 @@ export function useChats() {
     deleteMessage,
     searchMessages,
     loadUntil,
-    pinChat,
   }
 }
