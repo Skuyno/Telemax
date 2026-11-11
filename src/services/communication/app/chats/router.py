@@ -2,10 +2,12 @@
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Response
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.chats import service as chats_service
+from app.chats import storage as chats_storage
 from app.chats.models import Message
 from app.chats.schemas import (
     AddGroupMembersRequest,
@@ -15,6 +17,7 @@ from app.chats.schemas import (
     CreateDirectChatResponse,
     CreateGroupChatRequest,
     CreateGroupChatResponse,
+    DeleteMessagesRequest,
     EditMessageRequest,
     ForwardMessageRequest,
     MarkChatReadRequest,
@@ -80,7 +83,7 @@ async def list_user_chats(
         most recent message (null if none yet).
     """
     chats_with_titles = await chats_service.list_user_chats(db, user_id)
-    chat_ids = [chat.id for chat, _ in chats_with_titles]
+    chat_ids = [chat.id for chat, _, _ in chats_with_titles]
     last_messages = await chats_service.get_last_messages(db, chat_ids)
     unread_counts = await chats_service.get_unread_counts(db, user_id, chat_ids)
     pinned_at_by_chat = await settings_service.list_pinned_chat_ids(db, user_id)
@@ -94,11 +97,12 @@ async def list_user_chats(
             # participant); a notifications chat has no subtype row either,
             # so its one fixed, well-known name is supplied here instead.
             title="Уведомления" if chat.type == "notifications" else title,
+            avatar_url=avatar_url,
             last_message=last_messages.get(chat.id),
             unread_count=unread_counts.get(chat.id, 0),
             is_pinned=chat.id in pinned_at_by_chat,
         )
-        for chat, title in chats_with_titles
+        for chat, title, avatar_url in chats_with_titles
     ]
 
     # Pinned chats float to the top (most recently pinned first); within
@@ -190,6 +194,77 @@ async def update_group_chat(
     await chats_service.update_group_chat(db, chat_id, user_id, data)
 
 
+@router.put("/{chat_id}/avatar", status_code=204, tags=["Chats"])
+async def upload_group_avatar(
+    chat_id: UUID,
+    request: Request,
+    content_type: str = Header("application/octet-stream"),
+    content_length: int | None = Header(default=None),
+    user_id: UUID = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_async_db),
+) -> None:
+    """Upload (or replace) a group chat's avatar image.
+
+    The request body is the raw image (no multipart), same streaming
+    convention as identity's `/me/avatar`.
+
+    Args:
+        chat_id: Id of the group chat.
+        request: Used to stream the raw request body.
+        content_type: MIME type of the image (must be jpeg/png/webp/gif).
+        content_length: Declared size, used only as an early size hint.
+        user_id: Current user, who must be the group owner.
+        db: Async database session.
+    """
+    await chats_service.upload_group_avatar(
+        db, chat_id, user_id, content_type, content_length, request.stream()
+    )
+
+
+@router.delete("/{chat_id}/avatar", status_code=204, tags=["Chats"])
+async def remove_group_avatar(
+    chat_id: UUID,
+    user_id: UUID = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_async_db),
+) -> None:
+    """Remove a group chat's avatar.
+
+    Args:
+        chat_id: Id of the group chat.
+        user_id: Current user, who must be the group owner.
+        db: Async database session.
+    """
+    await chats_service.remove_group_avatar(db, chat_id, user_id)
+
+
+@router.get("/{chat_id}/avatar", tags=["Chats"])
+async def get_group_avatar(
+    chat_id: UUID,
+    user_id: UUID = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_async_db),
+) -> StreamingResponse:
+    """Stream a group chat's avatar image, for display by its members.
+
+    Args:
+        chat_id: Id of the group chat.
+        user_id: Current user, who must be a member of the chat.
+        db: Async database session.
+
+    Returns:
+        StreamingResponse: The avatar's bytes.
+
+    Raises:
+        HTTPException: 403 if the user isn't a member, 404 if the chat has
+            no avatar stored.
+    """
+    await chats_service.require_membership(db, chat_id, user_id)
+    result = await chats_storage.stream_avatar(str(chat_id))
+    if result is None:
+        raise HTTPException(status_code=404, detail="No avatar set")
+    body, content_type = result
+    return StreamingResponse(body, media_type=content_type)
+
+
 @router.post("/{chat_id}/messages", status_code=201, tags=["Messages"])
 async def send_message(
     chat_id: UUID,
@@ -215,26 +290,53 @@ async def send_message(
 
 
 @router.post("/{chat_id}/messages/forward", status_code=201, tags=["Messages"])
-async def forward_message(
+async def forward_messages(
     chat_id: UUID,
     data: ForwardMessageRequest,
     user_id: UUID = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_async_db),
-) -> MessageResponse:
-    """Forward an existing message from another chat into this one.
+) -> list[MessageResponse]:
+    """Forward one or more existing messages from another chat into this one.
 
     Args:
         chat_id: Id of the chat to forward into.
-        data: The source message to copy, and an idempotency key.
+        data: The source messages to copy, and a batch idempotency key.
         user_id: User id trusted from the X-User-Id header.
         db: Async database session.
 
     Returns:
-        MessageResponse: The newly created forwarded message.
+        list[MessageResponse]: The newly created forwarded messages, in the
+        same order as in the source chat.
     """
-    msg = await chats_service.forward_message(db, chat_id, user_id, data)
-    attachment_ids = await chats_service.get_attachment_ids(db, msg.id)
-    return _to_message_response(msg, attachment_ids)
+    messages = await chats_service.forward_messages(db, chat_id, user_id, data)
+    attachments_by_message = await chats_service.get_attachment_ids_bulk(
+        db, [msg.id for msg in messages]
+    )
+    return [
+        _to_message_response(msg, attachments_by_message.get(msg.id, []))
+        for msg in messages
+    ]
+
+
+@router.post("/{chat_id}/messages/delete", status_code=204, tags=["Messages"])
+async def delete_messages(
+    chat_id: UUID,
+    data: DeleteMessagesRequest,
+    user_id: UUID = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_async_db),
+) -> None:
+    """Delete several of the caller's own messages in one chat at once.
+
+    All-or-nothing: if any message isn't in this chat or isn't owned by the
+    caller, nothing is deleted.
+
+    Args:
+        chat_id: Id of the chat the messages belong to.
+        data: Ids of the messages to delete.
+        user_id: User id trusted from the X-User-Id header.
+        db: Async database session.
+    """
+    await chats_service.delete_messages(db, chat_id, user_id, data.message_ids)
 
 
 @router.get("/{chat_id}/messages", tags=["Messages"])

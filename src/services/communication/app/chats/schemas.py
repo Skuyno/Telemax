@@ -29,6 +29,9 @@ class MessagePreview(BaseModel):
     body: str
     sender_id: UUID
     created_at: datetime
+    kind: Literal["text", "service"] = "text"
+    service_action: str | None = None
+    service_target_message_id: UUID | None = None
 
 
 class ChatResponse(BaseModel):
@@ -39,6 +42,7 @@ class ChatResponse(BaseModel):
     id: UUID
     type: Literal["direct", "group", "notifications"]
     title: str | None = None
+    avatar_url: str | None = None
     last_message: MessagePreview | None
     unread_count: int = 0
     is_pinned: bool = False
@@ -91,14 +95,34 @@ class MessageResponse(BaseModel):
     forwarded_from_message_id: UUID | None = None
     forwarded_from_sender_id: UUID | None = None
     reply_to_message_id: UUID | None = None
+    kind: Literal["text", "service"] = "text"
+    service_action: str | None = None
+    service_target_message_id: UUID | None = None
+
+
+_MAX_BULK_MESSAGE_IDS = 100
 
 
 class ForwardMessageRequest(BaseModel):
-    """Request to forward an existing message into another chat."""
+    """Request to forward one or more existing messages into another chat.
+
+    All source messages must belong to the same chat. One client_msg_id
+    covers the whole batch for idempotency — each forwarded message's own
+    (internal) client_msg_id is derived from it, so retrying the exact
+    same request never creates duplicates.
+    """
 
     source_chat_id: UUID
-    source_message_id: UUID
+    source_message_ids: list[UUID] = Field(
+        min_length=1, max_length=_MAX_BULK_MESSAGE_IDS
+    )
     client_msg_id: UUID
+
+
+class DeleteMessagesRequest(BaseModel):
+    """Request to delete one or more of the caller's own messages at once."""
+
+    message_ids: list[UUID] = Field(min_length=1, max_length=_MAX_BULK_MESSAGE_IDS)
 
 
 class CreateGroupChatRequest(BaseModel):

@@ -26,8 +26,8 @@ Gateway подписан на `chat.message.*`, `chat.sync_required` и `file.up
 
 | Subject | `type` в конверте | `data` |
 |---|---|---|
-| `chat.message.created` | `message.created` | `message_id, chat_id, sender_id, body, created_at` |
-| `chat.message.updated` | `message.updated` | то же + `edited_at` |
+| `chat.message.created` | `message.created` | `message_id, chat_id, sender_id, body, created_at`, плюс `kind`, `reply_to_message_id`, `forwarded_from_message_id`, `forwarded_from_sender_id`, `service_action`, `service_target_message_id` (последние четыре — указатели, `omitempty`: отсутствуют в JSON, если сообщение обычное) |
+| `chat.message.updated` | `message.updated` | то же, что и `created`, + `edited_at` (поля ответа/пересылки/служебности в payload редактирования сейчас не передаются — они не меняются при правке текста) |
 | `chat.message.deleted` | `message.deleted` | `message_id, chat_id, sender_id` (тело уже не передаётся) |
 | `chat.message.read` | `message.read` | `chat_id, user_id, last_read_message_id` |
 | `chat.message.typing` | `typing` | `chat_id, user_id` |
@@ -36,6 +36,8 @@ Gateway подписан на `chat.message.*`, `chat.sync_required` и `file.up
 | `file.upload.completed` | `upload.completed` | `file_id, chat_id, uploader_id, size_bytes` |
 
 Для created/updated также передаётся `attachment_file_ids`.
+
+`kind` — `"text"` (обычное сообщение, дефолт) или `"service"` (служебное, например закрепление сообщения «для всех» в communication — см. его README). У служебного сообщения `service_action`/`service_target_message_id` заполнены, у обычного — отсутствуют в JSON. Пересылка и ответы несут собственную атрибуцию (`forwarded_from_*`/`reply_to_message_id`) в том же событии `message.created` — фронту не нужно дозапрашивать историю, чтобы показать цитату/подпись сразу.
 
 Обратите внимание: id сообщения в конверте называется **`message_id`**, а не `id`, как в REST-ответах `/chats/{id}/messages` — это разные поля с одним и тем же смыслом, маппить их придётся отдельно.
 
@@ -47,7 +49,7 @@ Gateway подписан на `chat.message.*`, `chat.sync_required` и `file.up
 {"type":"chat.sync_required","data":{"chat_id":"<uuid>","reason":"members_added"}}
 ```
 
-`reason`: `created`, `updated`, `members_added`, `member_removed`. Это сигнал перечитать данные, а не полное состояние группы: обновить `GET /chats` и при необходимости участников через REST. Удалённый участник также получает сигнал; если чат исчез из списка, нужно закрыть его и очистить локальные данные. После reconnect обновляйте список независимо от событий: доставка сигнала в браузер не гарантирована. Обработчик на фронтенде ещё требуется.
+`reason`: `created`, `updated`, `members_added`, `member_removed`, а также `message_pinned`/`message_unpinned` (закрепление/открепление сообщения «для всех» — см. README `communication`, раздел «Закрепление чатов и сообщений»). Это сигнал перечитать данные, а не полное состояние группы: обновить `GET /chats` (и/или `GET /chats/{id}/messages/pinned` для pin-причин) и при необходимости участников через REST. Удалённый участник также получает сигнал; если чат исчез из списка, нужно закрыть его и очистить локальные данные. После reconnect обновляйте список независимо от событий: доставка сигнала в браузер не гарантирована. Обработчик на фронтенде ещё требуется.
 
 ## Соединение и presence
 

@@ -147,25 +147,25 @@ async def create_direct_chat(
 async def list_user_chats(
     db: AsyncSession,
     user_id: UUID,
-) -> Sequence[tuple[Chat, str | None]]:
-    """Look up a user's chats together with optional group titles.
+) -> Sequence[tuple[Chat, str | None, str | None]]:
+    """Look up a user's chats together with optional group titles/avatars.
 
     Args:
         db: Async database session.
         user_id: Id of the user to look up chats for.
 
     Returns:
-        Sequence[tuple[Chat, str | None]]: Chats paired with their group title;
-            direct chats have no title.
+        Sequence[tuple[Chat, str | None, str | None]]: Chats paired with
+            their group title and avatar_url; direct chats have neither.
     """
     result = await db.execute(
-        select(Chat, GroupChat.title)
+        select(Chat, GroupChat.title, GroupChat.avatar_url)
         .outerjoin(GroupChat, GroupChat.chat_id == Chat.id)
         .join(ChatMember, Chat.id == ChatMember.chat_id)
         .where(ChatMember.user_id == user_id)
     )
 
-    return [(chat, title) for chat, title in result.all()]
+    return [(chat, title, avatar_url) for chat, title, avatar_url in result.all()]
 
 
 async def get_last_messages(
@@ -268,6 +268,9 @@ async def create_message(
     forwarded_from_message_id: UUID | None = None,
     forwarded_from_sender_id: UUID | None = None,
     reply_to_message_id: UUID | None = None,
+    kind: str = "text",
+    service_action: str | None = None,
+    service_target_message_id: UUID | None = None,
 ) -> tuple[Message, bool]:
     """Create a new message or return an existing one if client_msg_id is duplicated.
 
@@ -282,6 +285,11 @@ async def create_message(
         forwarded_from_sender_id: Id of the original message's sender, if
             this is a forwarded copy.
         reply_to_message_id: Id of the message being replied to, if any.
+        kind: "text" (default) or "service".
+        service_action: Machine-readable action name, only for a service
+            message (e.g. "message_pinned").
+        service_target_message_id: Id of the message a service message is
+            about, if any.
 
     Doesn't commit — callers that also need to attach files in the same
     request (e.g. `send_message`) do that first and commit once at the
@@ -301,6 +309,9 @@ async def create_message(
         forwarded_from_message_id=forwarded_from_message_id,
         forwarded_from_sender_id=forwarded_from_sender_id,
         reply_to_message_id=reply_to_message_id,
+        kind=kind,
+        service_action=service_action,
+        service_target_message_id=service_target_message_id,
     )
     try:
         async with db.begin_nested():
@@ -513,6 +524,25 @@ async def soft_delete_message(db: AsyncSession, message: Message) -> Message:
     message.body = ""
     await db.commit()
     return message
+
+
+async def soft_delete_messages(
+    db: AsyncSession, messages: Sequence[Message]
+) -> list[Message]:
+    """Mark several messages deleted and clear their text, in one commit.
+
+    Args:
+        db: Async database session.
+        messages: The message rows to delete.
+
+    Returns:
+        list[Message]: The updated (deleted) messages.
+    """
+    for message in messages:
+        message.is_deleted = True
+        message.body = ""
+    await db.commit()
+    return list(messages)
 
 
 async def search_messages(
@@ -925,6 +955,30 @@ async def update_group_title(
         update(GroupChat)
         .where(GroupChat.chat_id == chat_id)
         .values(title=title)
+        .returning(GroupChat.chat_id)
+    )
+    await db.commit()
+
+    return result.scalar_one_or_none() is not None
+
+
+async def update_group_avatar_url(
+    db: AsyncSession, chat_id: UUID, avatar_url: str | None
+) -> bool:
+    """Update (or clear) a group chat's avatar_url.
+
+    Args:
+        db: Async database session.
+        chat_id: Id of the group chat.
+        avatar_url: New avatar URL, or None to clear it.
+
+    Returns:
+        bool: True if the group row was updated.
+    """
+    result = await db.execute(
+        update(GroupChat)
+        .where(GroupChat.chat_id == chat_id)
+        .values(avatar_url=avatar_url)
         .returning(GroupChat.chat_id)
     )
     await db.commit()

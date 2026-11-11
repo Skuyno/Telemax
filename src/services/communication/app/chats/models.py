@@ -75,6 +75,15 @@ class Message(Base):
     # later edited, the reply preview should reflect that; if it's deleted,
     # `is_deleted` on the referenced row still tells readers so.
     reply_to_message_id: Mapped[UUID | None] = mapped_column(ForeignKey("messages.id"))
+    # "text" (default, a normal user message) or "service" (server-authored,
+    # e.g. "message pinned" — see app/pins/service.py). service_action/
+    # service_target_message_id are only set on a service message; sender_id
+    # on one is whoever triggered the action, not a real author.
+    kind: Mapped[str] = mapped_column(String(16), default="text", server_default="text")
+    service_action: Mapped[str | None] = mapped_column(String(32))
+    service_target_message_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("messages.id")
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
@@ -130,6 +139,12 @@ class GroupChat(Base):
 
     chat_id: Mapped[UUID] = mapped_column(ForeignKey("chats.id"), primary_key=True)
     title: Mapped[str] = mapped_column(String(128))
+    # Same convention as users.avatar_url in identity: a same-origin
+    # `/chats/{id}/avatar?v=...` route, not a direct SeaweedFS URL — the
+    # `v` cache-busting suffix is what lets the frontend cache it long-term
+    # while still invalidating on re-upload (the storage key is fixed per
+    # chat, so a re-upload replaces the blob in place).
+    avatar_url: Mapped[str | None] = mapped_column(String(512))
 
 
 class NotificationsChat(Base):
