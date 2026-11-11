@@ -11,9 +11,22 @@ const props = defineProps<{
   authorName?: string
   hideStatus?: boolean
   highlighted?: boolean
+  quote?: { authorName: string; body: string } | null
+  forwardedFrom?: string
+  canReply?: boolean
 }>()
 
-defineEmits<{ edit: []; remove: [] }>()
+const emit = defineEmits<{
+  edit: []
+  remove: []
+  reply: []
+  jumpReply: []
+  menu: [x: number, y: number]
+}>()
+
+const { onClickCapture, listeners } = useLongPress((x, y) => {
+  if (!props.message.isDeleted) emit('menu', x, y)
+})
 
 const hasMedia = computed(
   () => !props.message.isDeleted && props.message.attachmentIds.length > 0,
@@ -36,6 +49,8 @@ const hasCaption = computed(() => hasMedia.value && Boolean(props.message.body))
 
     <div
       class="bubble"
+      v-on="listeners"
+      @click.capture="onClickCapture"
       :class="{
         'is-own': own,
         'is-deleted': message.isDeleted,
@@ -49,6 +64,22 @@ const hasCaption = computed(() => hasMedia.value && Boolean(props.message.body))
       <p v-if="message.isDeleted" class="bubble__body is-deleted">Сообщение удалено</p>
 
       <template v-else>
+        <p v-if="forwardedFrom" class="bubble__forwarded">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <path d="M14 9V5l7 7-7 7v-4.1c-5 0-8.5 1.6-11 5.1 1-5 4-10 11-11z" />
+          </svg>
+          Переслано от <b>{{ forwardedFrom }}</b>
+        </p>
+        <button
+          v-if="quote"
+          type="button"
+          class="bubble__quote"
+          aria-label="Перейти к сообщению, на которое ответили"
+          @click="emit('jumpReply')"
+        >
+          <span class="bubble__quote-author">{{ quote.authorName }}</span>
+          <span class="bubble__quote-body">{{ quote.body }}</span>
+        </button>
         <div v-if="message.attachmentIds.length" class="bubble__attachments">
           <ChatAttachment
             v-for="fileId in message.attachmentIds"
@@ -99,13 +130,25 @@ const hasCaption = computed(() => hasMedia.value && Boolean(props.message.body))
       </span>
     </div>
 
-    <div v-if="own && !message.isDeleted" class="line__actions">
+    <div v-if="(own || canReply) && !message.isDeleted" class="line__actions">
       <button
-        v-if="message.body"
+        v-if="canReply"
+        type="button"
+        class="line__action"
+        aria-label="Ответить"
+        title="Ответить"
+        @click="emit('reply')"
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <path d="M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z" />
+        </svg>
+      </button>
+      <button
+        v-if="own && message.body"
         type="button"
         class="line__action"
         aria-label="Изменить сообщение"
-        @click="$emit('edit')"
+        @click="emit('edit')"
       >
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
           <path d="M4 20h4L19 9l-4-4L4 16v4z" />
@@ -113,10 +156,11 @@ const hasCaption = computed(() => hasMedia.value && Boolean(props.message.body))
         </svg>
       </button>
       <button
+        v-if="own"
         type="button"
         class="line__action is-danger"
         aria-label="Удалить сообщение"
-        @click="$emit('remove')"
+        @click="emit('remove')"
       >
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
           <path d="M4 7h16" />
@@ -193,7 +237,8 @@ const hasCaption = computed(() => hasMedia.value && Boolean(props.message.body))
 }
 
 .bubble.has-media .bubble__author {
-  padding: 8px 12px 4px;
+  margin: 0;
+  padding: 8px 12px 6px;
 }
 
 .bubble.has-caption .bubble__body {
@@ -257,6 +302,91 @@ const hasCaption = computed(() => hasMedia.value && Boolean(props.message.body))
   background: transparent;
   border-style: dashed;
   border-color: var(--chat-line);
+}
+
+.bubble__forwarded {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+.bubble__forwarded b {
+  overflow: hidden;
+  font-family: var(--font-heading);
+  font-weight: 600;
+  color: var(--color-accent);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bubble.is-own .bubble__forwarded,
+.bubble.is-own .bubble__forwarded b {
+  color: var(--color-ink);
+}
+
+.bubble__forwarded svg {
+  width: 13px;
+  height: 13px;
+  flex: none;
+}
+
+.bubble.has-media .bubble__forwarded {
+  padding: 8px 12px 6px;
+}
+
+.bubble__quote {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  min-width: 0;
+  padding: 5px 10px;
+  background: rgba(230, 236, 255, 0.07);
+  border: none;
+  border-left: 3px solid var(--color-accent);
+  border-radius: 6px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.bubble.is-own .bubble__quote {
+  background: rgba(11, 18, 54, 0.1);
+  border-left-color: var(--color-ink);
+}
+
+.bubble.has-media .bubble__quote {
+  width: auto;
+  margin: 8px 8px 0;
+}
+
+.bubble__quote-author {
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--color-accent);
+}
+
+.bubble.is-own .bubble__quote-author {
+  color: var(--color-ink);
+}
+
+.bubble__quote-body {
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--color-text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bubble.is-own .bubble__quote-body {
+  color: var(--color-ink);
+  opacity: 0.75;
 }
 
 .bubble__attachments {
@@ -352,7 +482,8 @@ const hasCaption = computed(() => hasMedia.value && Boolean(props.message.body))
 .line__actions {
   display: flex;
   gap: 4px;
-  align-self: center;
+  align-self: flex-end;
+  margin-bottom: 2px;
   opacity: 0;
   transition: opacity 0.15s ease;
 }
@@ -394,8 +525,16 @@ const hasCaption = computed(() => hasMedia.value && Boolean(props.message.body))
     max-width: 78%;
   }
 
+}
+
+@media (hover: none) {
   .line__actions {
-    opacity: 1;
+    display: none;
+  }
+
+  .bubble {
+    -webkit-touch-callout: none;
+    user-select: none;
   }
 }
 </style>

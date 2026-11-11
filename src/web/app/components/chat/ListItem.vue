@@ -4,7 +4,12 @@ import { formatChatListTime } from '~/utils/chatTime'
 
 const props = defineProps<{ chat: Chat; active: boolean; compact?: boolean }>()
 
-defineEmits<{ select: [] }>()
+const emit = defineEmits<{ select: []; menu: [x: number, y: number] }>()
+
+const { handleClick, listeners } = useLongPress(
+  (x, y) => emit('menu', x, y),
+  () => emit('select'),
+)
 
 const chatStore = useChatStore()
 
@@ -27,7 +32,8 @@ const preview = computed(() => {
     :class="{ 'is-active': active, 'is-compact': compact }"
     :title="compact ? chat.title : undefined"
     :aria-label="compact ? chat.title : undefined"
-    @click="$emit('select')"
+    v-on="listeners"
+    @click="handleClick"
   >
     <span class="row__avatar">
       <ChatSavedIcon v-if="chat.isSaved" />
@@ -43,6 +49,18 @@ const preview = computed(() => {
     <span v-if="!compact" class="row__body">
       <span class="row__top">
         <span class="row__title">{{ chat.title }}</span>
+        <svg
+          v-if="chat.pinnedRank !== undefined"
+          class="row__pin"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          aria-label="закреплён"
+        >
+          <path d="M9 4h6l-1 6 3 3H7l3-3z" />
+          <path d="M12 13v7" />
+        </svg>
         <span v-if="chat.lastMessage" class="row__time">
           {{ formatChatListTime(chat.lastMessage.createdAt) }}
         </span>
@@ -69,6 +87,8 @@ const preview = computed(() => {
   border-radius: var(--chat-radius);
   text-align: left;
   cursor: pointer;
+  -webkit-touch-callout: none;
+  user-select: none;
   transition:
     background 0.15s ease,
     border-color 0.15s ease;
@@ -194,6 +214,14 @@ const preview = computed(() => {
   color: var(--color-text);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.row__pin {
+  width: 12px;
+  height: 12px;
+  flex: none;
+  margin-left: auto;
+  color: var(--color-text-dim);
 }
 
 .row__time {

@@ -1,11 +1,19 @@
 import { defineStore } from 'pinia'
-import type { Chat, ChatProfile, Message, UserSearchResult } from '~/types/chat'
+import type { Chat, ChatProfile, Message, PinnedMessage, UserSearchResult } from '~/types/chat'
 
 const TYPING_TTL_MS = 4000
 const ACTIVE_CHAT_KEY = 'telemax.active-chat'
 
 function lastActivity(chat: Chat): string {
   return chat.lastMessage?.createdAt ?? ''
+}
+
+function compareChats(a: Chat, b: Chat): number {
+  const aPinned = a.pinnedRank !== undefined
+  const bPinned = b.pinnedRank !== undefined
+  if (aPinned !== bPinned) return aPinned ? -1 : 1
+  if (aPinned && bPinned) return a.pinnedRank! - b.pinnedRank!
+  return lastActivity(b).localeCompare(lastActivity(a))
 }
 
 export const useChatStore = defineStore('chat', {
@@ -28,6 +36,7 @@ export const useChatStore = defineStore('chat', {
     typingUntilByChatId: {} as Record<string, number>,
     typingUserIdByChatId: {} as Record<string, string>,
     peerReadMessageIdByChatId: {} as Record<string, string>,
+    pinnedByChatId: {} as Record<string, PinnedMessage[]>,
     now: Date.now(),
   }),
 
@@ -65,7 +74,15 @@ export const useChatStore = defineStore('chat', {
   actions: {
     /** Бэкенд отдаёт чаты без сортировки — сверху те, где писали последними. */
     setChats(chats: Chat[]) {
-      this.chats = [...chats].sort((a, b) => lastActivity(b).localeCompare(lastActivity(a)))
+      this.chats = [...chats].sort(compareChats)
+    },
+
+    setPinned(chatId: string, pinned: boolean) {
+      const chat = this.chats.find((item) => item.id === chatId)
+      if (!chat) return
+      const ranks = this.chats.flatMap((item) => (item.pinnedRank === undefined ? [] : [item.pinnedRank]))
+      chat.pinnedRank = pinned ? Math.min(0, ...ranks) - 1 : undefined
+      this.setChats(this.chats)
     },
 
     setMessages(chatId: string, messages: Message[], hasMore: boolean) {
@@ -157,6 +174,14 @@ export const useChatStore = defineStore('chat', {
         if (message.attachmentIds.length && !existing.attachmentIds.length) {
           this.patchMessage(message.chatId, message.id, { attachmentIds: message.attachmentIds })
         }
+        if (message.replyToId && !existing.replyToId) {
+          this.patchMessage(message.chatId, message.id, { replyToId: message.replyToId })
+        }
+        if (message.forwardedFromSenderId && !existing.forwardedFromSenderId) {
+          this.patchMessage(message.chatId, message.id, {
+            forwardedFromSenderId: message.forwardedFromSenderId,
+          })
+        }
         return
       }
       list.push(message)
@@ -176,7 +201,18 @@ export const useChatStore = defineStore('chat', {
       }
     },
 
+    setPinnedMessages(chatId: string, pinned: PinnedMessage[]) {
+      this.pinnedByChatId[chatId] = pinned
+    },
+
     patchMessage(chatId: string, messageId: string, patch: Partial<Message>) {
+      const pinned = this.pinnedByChatId[chatId]
+      if (pinned?.some((item) => item.id === messageId)) {
+        this.pinnedByChatId[chatId] = pinned
+          .map((item) => (item.id === messageId ? { ...item, ...patch } : item))
+          .filter((item) => !item.isDeleted)
+      }
+
       const list = this.messagesByChatId[chatId]
       if (!list) return
       const index = list.findIndex((item) => item.id === messageId)
