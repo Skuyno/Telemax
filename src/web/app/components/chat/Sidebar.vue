@@ -3,7 +3,7 @@ import type { UserSearchResult } from '~/types/chat'
 
 const chatStore = useChatStore()
 const auth = useAuthStore()
-const { searchUsers, openChatWith, openSavedChat } = useChats()
+const { searchUsers, openChatWith, openSavedChat, pinChat } = useChats()
 
 const myName = computed(() => auth.user?.displayName ?? auth.user?.username ?? '')
 const myInitials = computed(() => (myName.value ? toInitials(myName.value) : ''))
@@ -117,10 +117,68 @@ watch(menuOpen, (open) => {
   }
 })
 
+const CHAT_MENU_WIDTH = 220
+const CHAT_MENU_HEIGHT = 60
+
+const chatMenu = ref<{ chatId: string; x: number; y: number } | null>(null)
+const chatMenuRoot = ref<HTMLElement | null>(null)
+
+const chatMenuChat = computed(() =>
+  chatMenu.value ? (chatStore.chats.find((chat) => chat.id === chatMenu.value!.chatId) ?? null) : null,
+)
+
+function onChatMenu(chatId: string, x: number, y: number) {
+  menuOpen.value = false
+  chatMenu.value = {
+    chatId,
+    x: Math.max(8, Math.min(x, window.innerWidth - CHAT_MENU_WIDTH - 8)),
+    y: Math.max(8, Math.min(y, window.innerHeight - CHAT_MENU_HEIGHT - 8)),
+  }
+}
+
+function closeChatMenu() {
+  chatMenu.value = null
+}
+
+function onChatMenuPointerDown(event: PointerEvent) {
+  if (!chatMenuRoot.value?.contains(event.target as Node)) closeChatMenu()
+}
+
+function onChatMenuKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape') closeChatMenu()
+}
+
+watch(chatMenu, (menu, previous) => {
+  if (menu && !previous) {
+    window.addEventListener('pointerdown', onChatMenuPointerDown)
+    window.addEventListener('keydown', onChatMenuKeydown)
+    window.addEventListener('resize', closeChatMenu)
+  } else if (!menu) {
+    window.removeEventListener('pointerdown', onChatMenuPointerDown)
+    window.removeEventListener('keydown', onChatMenuKeydown)
+    window.removeEventListener('resize', closeChatMenu)
+  }
+})
+
+async function onTogglePin() {
+  const chat = chatMenuChat.value
+  closeChatMenu()
+  if (!chat) return
+  openError.value = ''
+  try {
+    await pinChat(chat.id, chat.pinnedRank === undefined)
+  } catch (e) {
+    openError.value = extractApiErrorMessage(e, 'Не удалось закрепить чат')
+  }
+}
+
 onBeforeUnmount(() => {
   clearTimeout(searchTimer)
   window.removeEventListener('pointerdown', onDocumentPointerDown)
   window.removeEventListener('keydown', onDocumentKeydown)
+  window.removeEventListener('pointerdown', onChatMenuPointerDown)
+  window.removeEventListener('keydown', onChatMenuKeydown)
+  window.removeEventListener('resize', closeChatMenu)
 })
 </script>
 
@@ -248,6 +306,7 @@ onBeforeUnmount(() => {
         :active="chat.id === chatStore.activeChatId"
         :compact="compact"
         @select="onSelect(chat.id)"
+        @menu="(x, y) => onChatMenu(chat.id, x, y)"
       />
 
       <template v-if="!compact && isSearching">
@@ -288,6 +347,27 @@ onBeforeUnmount(() => {
     </footer>
 
     <ChatGroupCreate v-if="groupOpen" @close="groupOpen = false" @created="onGroupCreated" />
+
+    <Teleport to="body">
+      <Transition name="menu">
+        <div
+          v-if="chatMenu && chatMenuChat"
+          ref="chatMenuRoot"
+          class="sidebar__dropdown sidebar__chat-menu"
+          role="menu"
+          :style="{ left: `${chatMenu.x}px`, top: `${chatMenu.y}px` }"
+        >
+          <button type="button" class="sidebar__menu-item" role="menuitem" @click="onTogglePin">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <path d="M9 4h6l-1 6 3 3H7l3-3z" />
+              <path d="M12 13v7" />
+              <path v-if="chatMenuChat.pinnedRank !== undefined" d="M4 4l16 16" />
+            </svg>
+            {{ chatMenuChat.pinnedRank === undefined ? 'Закрепить' : 'Открепить' }}
+          </button>
+        </div>
+      </Transition>
+    </Teleport>
   </aside>
 </template>
 
@@ -380,6 +460,13 @@ onBeforeUnmount(() => {
   border: 1px solid var(--color-line);
   border-radius: 14px;
   box-shadow: var(--shadow-hard);
+}
+
+.sidebar__chat-menu {
+  position: fixed;
+  z-index: 150;
+  min-width: 0;
+  width: 220px;
 }
 
 .sidebar__menu-item {

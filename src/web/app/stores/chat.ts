@@ -8,6 +8,14 @@ function lastActivity(chat: Chat): string {
   return chat.lastMessage?.createdAt ?? ''
 }
 
+function compareChats(a: Chat, b: Chat): number {
+  const aPinned = a.pinnedRank !== undefined
+  const bPinned = b.pinnedRank !== undefined
+  if (aPinned !== bPinned) return aPinned ? -1 : 1
+  if (aPinned && bPinned) return a.pinnedRank! - b.pinnedRank!
+  return lastActivity(b).localeCompare(lastActivity(a))
+}
+
 export const useChatStore = defineStore('chat', {
   state: () => ({
     chats: [] as Chat[],
@@ -65,7 +73,15 @@ export const useChatStore = defineStore('chat', {
   actions: {
     /** Бэкенд отдаёт чаты без сортировки — сверху те, где писали последними. */
     setChats(chats: Chat[]) {
-      this.chats = [...chats].sort((a, b) => lastActivity(b).localeCompare(lastActivity(a)))
+      this.chats = [...chats].sort(compareChats)
+    },
+
+    setPinned(chatId: string, pinned: boolean) {
+      const chat = this.chats.find((item) => item.id === chatId)
+      if (!chat) return
+      const ranks = this.chats.flatMap((item) => (item.pinnedRank === undefined ? [] : [item.pinnedRank]))
+      chat.pinnedRank = pinned ? Math.min(0, ...ranks) - 1 : undefined
+      this.setChats(this.chats)
     },
 
     setMessages(chatId: string, messages: Message[], hasMore: boolean) {

@@ -14,6 +14,7 @@ export interface Chat {
   unreadCount: number
   memberCount?: number
   isSaved?: boolean
+  pinnedRank?: number
   lastMessage?: ChatPreview
 }
 
@@ -78,6 +79,7 @@ export interface ChatResponse {
   title: string | null
   unread_count: number
   last_message: {
+  is_pinned: boolean
     body: string
     sender_id: string
     created_at: string

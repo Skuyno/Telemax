@@ -104,6 +104,7 @@ export function useChats() {
             memberCount: isGroup ? members[index]!.length : undefined,
             isSaved,
             lastMessage: last
+            pinnedRank: chat.is_pinned ? index : undefined,
               ? {
                   body: last.body,
                   createdAt: last.created_at,
@@ -345,6 +346,16 @@ export function useChats() {
     }
 
     const chat = await api<{ id: string }>('/chats/direct', {
+  async function pinChat(chatId: string, pinned: boolean) {
+    chatStore.setPinned(chatId, pinned)
+    try {
+      await api(`/chats/${chatId}/settings`, { method: 'PATCH', body: { is_pinned: pinned } })
+    } catch (e) {
+      chatStore.setPinned(chatId, !pinned)
+      throw e
+    }
+  }
+
       method: 'POST',
       body: { peer_user_id: me },
     })
@@ -508,5 +519,6 @@ export function useChats() {
     deleteMessage,
     searchMessages,
     loadUntil,
+    pinChat,
   }
 }
