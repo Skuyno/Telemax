@@ -31,6 +31,12 @@ export interface Message {
   forwardedFromSenderId?: string | null
 }
 
+export type PinScope = 'me' | 'everyone'
+
+export interface PinnedMessage extends Message {
+  pinScope: PinScope
+}
+
 export interface Attachment {
   id: string
   name: string
@@ -109,6 +115,10 @@ export interface MessageResponse {
   forwarded_from_sender_id?: string | null
 }
 
+export interface PinnedMessageResponse extends MessageResponse {
+  pin_scope: PinScope
+}
+
 export interface FileResponse {
   id: string
   original_filename: string
@@ -182,7 +192,13 @@ export interface ChatSyncRequiredEvent {
   type: 'chat.sync_required'
   data: {
     chat_id: string
-    reason: 'created' | 'updated' | 'members_added' | 'member_removed'
+    reason:
+      | 'created'
+      | 'updated'
+      | 'members_added'
+      | 'member_removed'
+      | 'message_pinned'
+      | 'message_unpinned'
   }
 }
 

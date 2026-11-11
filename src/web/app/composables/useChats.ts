@@ -6,6 +6,8 @@ import type {
   GroupMember,
   Message,
   MessageResponse,
+  PinnedMessageResponse,
+  PinScope,
   UserSearchResult,
   WsEvent,
 } from '~/types/chat'
@@ -187,6 +189,27 @@ export function useChats() {
     })
     chatStore.addMessage(toMessage(saved))
     ensureProfiles(authorIds([saved]))
+  }
+
+  async function loadPinned(chatId: string) {
+    const pinned = await api<PinnedMessageResponse[]>(`/chats/${chatId}/messages/pinned`)
+    chatStore.setPinnedMessages(
+      chatId,
+      pinned
+        .filter((raw) => !raw.is_deleted)
+        .map((raw) => ({ ...toMessage(raw), pinScope: raw.pin_scope })),
+    )
+    ensureProfiles(authorIds(pinned))
+  }
+
+  async function pinMessage(chatId: string, messageId: string, scope: PinScope) {
+    await api(`/chats/${chatId}/messages/${messageId}/pin`, { method: 'POST', body: { scope } })
+    await loadPinned(chatId)
+  }
+
+  async function unpinMessage(chatId: string, messageId: string, scope: PinScope) {
+    await api(`/chats/${chatId}/messages/${messageId}/pin`, { method: 'DELETE', body: { scope } })
+    await loadPinned(chatId)
   }
 
   async function editMessage(chatId: string, messageId: string, body: string) {
@@ -480,7 +503,11 @@ export function useChats() {
         break
       // Группа изменилась: сигнал говорит только «перечитай», данных в нём нет.
       case 'chat.sync_required':
-        syncChat(event.data.chat_id)
+        if (event.data.reason === 'message_pinned' || event.data.reason === 'message_unpinned') {
+          loadPinned(event.data.chat_id).catch(() => {})
+        } else {
+          syncChat(event.data.chat_id)
+        }
         break
     }
   }
@@ -532,7 +559,10 @@ export function useChats() {
   async function resync() {
     await loadChats()
     const chatId = chatStore.activeChatId
-    if (chatId) await loadMessages(chatId).catch(() => {})
+    if (chatId) {
+      await loadMessages(chatId).catch(() => {})
+      loadPinned(chatId).catch(() => {})
+    }
   }
 
   return {
@@ -541,6 +571,9 @@ export function useChats() {
     loadOlderMessages,
     sendMessage,
     forwardMessage,
+    loadPinned,
+    pinMessage,
+    unpinMessage,
     searchUsers,
     openChatWith,
     openSavedChat,

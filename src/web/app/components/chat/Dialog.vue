@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { Chat, Message } from '~/types/chat'
+import type { Chat, Message, PinScope } from '~/types/chat'
 import { dayKey, formatDateSeparator } from '~/utils/chatTime'
 
 const props = defineProps<{
@@ -14,7 +14,7 @@ const emit = defineEmits<{ back: []; loadOlder: []; typing: [] }>()
 
 const auth = useAuthStore()
 const chatStore = useChatStore()
-const { editMessage, deleteMessage, loadUntil } = useChats()
+const { editMessage, deleteMessage, loadUntil, pinMessage, unpinMessage } = useChats()
 
 const composer = ref<{ reset: () => void; focus: () => void } | null>(null)
 const editing = ref<Message | null>(null)
@@ -83,6 +83,63 @@ function forwardedName(message: Message) {
   return chatStore.profileByUserId[senderId]?.title ?? 'Пользователь'
 }
 
+const pinned = computed(() => chatStore.pinnedByChatId[props.chat.id] ?? [])
+const pinnedIndex = ref(0)
+const currentPin = computed(() => pinned.value[Math.min(pinnedIndex.value, pinned.value.length - 1)])
+const pinnedIds = computed(() => new Set(pinned.value.map((message) => message.id)))
+
+const pinFlow = ref<{ mode: 'pin' | 'unpin'; message: Message } | null>(null)
+const isPinning = ref(false)
+
+watch(
+  () => pinned.value.length,
+  (length) => {
+    if (pinnedIndex.value >= length) pinnedIndex.value = 0
+  },
+)
+
+function onPinnedClick() {
+  const message = currentPin.value
+  if (!message) return
+  jumpTo(message)
+  pinnedIndex.value = (pinnedIndex.value + 1) % pinned.value.length
+}
+
+function startPin(message: Message) {
+  if (props.chat.isSaved) applyPin('pin', message, 'me')
+  else pinFlow.value = { mode: 'pin', message }
+}
+
+function startUnpin(message: Message) {
+  const scope = pinned.value.find((item) => item.id === message.id)?.pinScope
+  if (scope === 'me' || props.chat.isSaved) applyPin('unpin', message, 'me')
+  else pinFlow.value = { mode: 'unpin', message }
+}
+
+async function applyPin(mode: 'pin' | 'unpin', message: Message, scope: PinScope) {
+  if (isPinning.value) return
+  isPinning.value = true
+  sendError.value = ''
+  try {
+    if (mode === 'pin') await pinMessage(props.chat.id, message.id, scope)
+    else await unpinMessage(props.chat.id, message.id, scope)
+    pinFlow.value = null
+    if (mode === 'pin') pinnedIndex.value = 0
+  } catch (e) {
+    sendError.value = extractApiErrorMessage(
+      e,
+      mode === 'pin' ? 'Не удалось закрепить сообщение' : 'Не удалось открепить сообщение',
+    )
+    pinFlow.value = null
+  } finally {
+    isPinning.value = false
+  }
+}
+
+function onPinScope(scope: PinScope) {
+  if (pinFlow.value) applyPin(pinFlow.value.mode, pinFlow.value.message, scope)
+}
+
 function onForwarded(chatId: string) {
   forwarding.value = null
   chatStore.setActiveChat(chatId)
@@ -133,13 +190,16 @@ const menuItems = computed(() => {
   return [
     ...(isNotifications.value ? [] : [{ key: 'reply', label: 'Ответить' }]),
     { key: 'forward', label: 'Переслать' },
+    pinnedIds.value.has(message.id)
+      ? { key: 'unpin', label: 'Открепить' }
+      : { key: 'pin', label: 'Закрепить' },
     ...(own && message.body ? [{ key: 'edit', label: 'Изменить' }] : []),
     ...(own ? [{ key: 'remove', label: 'Удалить' }] : []),
   ]
 })
 
 function openMessageMenu(message: Message, x: number, y: number) {
-  const height = 12 + MESSAGE_MENU_ITEM_HEIGHT * 4
+  const height = 12 + MESSAGE_MENU_ITEM_HEIGHT * 5
   messageMenu.value = {
     message,
     x: Math.max(8, Math.min(x, window.innerWidth - MESSAGE_MENU_WIDTH - 8)),
@@ -157,6 +217,8 @@ function onMessageMenuAction(key: string) {
   if (!message) return
   if (key === 'reply') startReply(message)
   else if (key === 'forward') forwarding.value = message
+  else if (key === 'pin') startPin(message)
+  else if (key === 'unpin') startUnpin(message)
   else if (key === 'edit') startEdit(message)
   else if (key === 'remove') onRemove(message)
 }
@@ -377,6 +439,8 @@ watch(
     replyingTo.value = null
     forwarding.value = null
     messageMenu.value = null
+    pinFlow.value = null
+    pinnedIndex.value = 0
     searchOpen.value = false
     membersOpen.value = false
     scrollToBottom()
@@ -441,6 +505,45 @@ watch(
         </svg>
       </button>
     </header>
+
+    <div v-if="currentPin" class="pinned">
+      <button
+        type="button"
+        class="pinned__main"
+        aria-label="Перейти к закреплённому сообщению"
+        @click="onPinnedClick"
+      >
+        <span v-if="pinned.length > 1" class="pinned__track" aria-hidden="true">
+          <i
+            v-for="(item, index) in pinned"
+            :key="item.id"
+            :class="{ 'is-current': index === pinnedIndex }"
+          />
+        </span>
+        <span class="pinned__text">
+          <span class="pinned__label">
+            Закреплённое сообщение
+            <template v-if="pinned.length > 1">#{{ pinnedIndex + 1 }}</template>
+            <span v-if="currentPin.pinScope === 'me' && !chat.isSaved" class="pinned__scope">
+              только у вас
+            </span>
+          </span>
+          <span class="pinned__body">{{ previewText(currentPin) }}</span>
+        </span>
+      </button>
+      <button
+        type="button"
+        class="pinned__close"
+        aria-label="Открепить"
+        title="Открепить"
+        @click="startUnpin(currentPin)"
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <path d="M18 6 6 18" />
+          <path d="M6 6l12 12" />
+        </svg>
+      </button>
+    </div>
 
     <ChatMessageSearch v-if="searchOpen" :chat-id="chat.id" @jump="jumpTo" />
 
@@ -513,6 +616,13 @@ watch(
       @cancel="pendingRemoval = null"
     />
 
+    <ChatPinScopeDialog
+      :mode="pinFlow?.mode ?? null"
+      :busy="isPinning"
+      @choose="onPinScope"
+      @cancel="pinFlow = null"
+    />
+
     <ChatForwardPicker
       v-if="forwarding"
       :message="forwarding"
@@ -547,6 +657,11 @@ watch(
                 v-else-if="item.key === 'forward'"
                 d="M14 9V5l7 7-7 7v-4.1c-5 0-8.5 1.6-11 5.1 1-5 4-10 11-11z"
               />
+              <template v-else-if="item.key === 'pin' || item.key === 'unpin'">
+                <path d="M9 4h6l-1 6 3 3H7l3-3z" />
+                <path d="M12 13v7" />
+                <path v-if="item.key === 'unpin'" d="M4 4l16 16" />
+              </template>
               <template v-else-if="item.key === 'edit'">
                 <path d="M4 20h4L19 9l-4-4L4 16v4z" />
                 <path d="M14 5l4 4" />
@@ -807,6 +922,117 @@ watch(
   .dialog__feed {
     padding-inline: 14px;
   }
+}
+
+.pinned {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  padding: 8px 14px 8px 20px;
+  background: var(--color-lift);
+  border-bottom: 1px solid var(--chat-line);
+}
+
+.pinned__main {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+  padding: 2px 0;
+  background: none;
+  border: none;
+  border-left: 3px solid var(--color-accent);
+  text-align: left;
+  cursor: pointer;
+}
+
+.pinned__main:has(.pinned__track) {
+  border-left: none;
+}
+
+.pinned__track {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 3px;
+  flex: none;
+}
+
+.pinned__track i {
+  flex: 1;
+  background: var(--chat-accent-soft);
+  border-radius: 2px;
+}
+
+.pinned__track i.is-current {
+  background: var(--color-accent);
+}
+
+.pinned__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding-left: 8px;
+}
+
+.pinned__main:has(.pinned__track) .pinned__text {
+  padding-left: 0;
+}
+
+.pinned__label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--color-accent);
+}
+
+.pinned__scope {
+  padding: 1px 7px;
+  border: 1px solid var(--chat-line);
+  border-radius: 999px;
+  font-family: var(--font-mono);
+  font-weight: 400;
+  font-size: 10px;
+  color: var(--color-text-dim);
+}
+
+.pinned__body {
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--color-text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pinned__close {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: var(--chat-radius);
+  color: var(--color-text-dim);
+  cursor: pointer;
+}
+
+.pinned__close:hover {
+  background: var(--color-surface);
+  color: var(--color-accent);
+}
+
+.pinned__close svg {
+  width: 16px;
+  height: 16px;
 }
 
 .message-menu {
