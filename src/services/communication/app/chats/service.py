@@ -1,7 +1,8 @@
 """Business logic for chats."""
 
+from collections.abc import AsyncIterator
 from typing import Sequence
-from uuid import UUID, uuid4
+from uuid import UUID, uuid4, uuid5
 
 import httpx
 from fastapi import HTTPException
@@ -9,6 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.chats import repository as chats_repository
+from app.chats import storage as chats_storage
 from app.chats.models import Chat, ChatMember, Message
 from app.chats.schemas import (
     AddGroupMembersRequest,
@@ -44,6 +46,20 @@ async def _require_membership(db: AsyncSession, chat_id: UUID, user_id: UUID) ->
     """
     if not await chats_repository.is_user_in_chat(db, chat_id, user_id):
         raise HTTPException(status_code=403, detail="not a user chat")
+
+
+async def require_membership(db: AsyncSession, chat_id: UUID, user_id: UUID) -> None:
+    """Public wrapper around `_require_membership`, for other routers/modules.
+
+    Args:
+        db: Async database session.
+        chat_id: Id of the chat.
+        user_id: Id of the user.
+
+    Raises:
+        HTTPException: 403 if the user is not a member of the chat.
+    """
+    await _require_membership(db, chat_id, user_id)
 
 
 async def _get_recipient_ids(
@@ -180,16 +196,16 @@ async def get_or_create_direct_chat(
 
 async def list_user_chats(
     db: AsyncSession, user_id: UUID
-) -> Sequence[tuple[Chat, str | None]]:
-    """List a user's chats together with optional group titles.
+) -> Sequence[tuple[Chat, str | None, str | None]]:
+    """List a user's chats together with optional group titles/avatars.
 
     Args:
         db: Async database session.
         user_id: Id of the user to look up chats for.
 
     Returns:
-        Sequence[tuple[Chat, str | None]]: Chats paired with their group title;
-            direct chats have no title.
+        Sequence[tuple[Chat, str | None, str | None]]: Chats paired with
+            their group title and avatar_url; direct chats have neither.
     """
     return await chats_repository.list_user_chats(db, user_id)
 
@@ -230,6 +246,54 @@ async def list_chat_members(
     return await chats_repository.list_chat_members(db, chat_id)
 
 
+def build_message_created_payload(
+    msg: Message, recipient_ids: Sequence[str], attachment_file_ids: Sequence[UUID]
+) -> dict:
+    """Build the `chat.message.created` NATS event payload for a message.
+
+    Shared by send_message, forward_messages, and pin-triggered service
+    messages (app/pins/service.py) so ws-gateway always sees the same
+    shape regardless of what created the message.
+
+    Args:
+        msg: The message row.
+        recipient_ids: Ids (as strings) of who should receive the event.
+        attachment_file_ids: Ids of the message's attached files.
+
+    Returns:
+        dict: The event payload.
+    """
+    return {
+        "id": str(msg.id),
+        "chat_id": str(msg.chat_id),
+        "sender_id": str(msg.sender_id),
+        "recipient_ids": list(recipient_ids),
+        "body": msg.body,
+        "attachment_file_ids": [str(fid) for fid in attachment_file_ids],
+        "created_at": msg.created_at.isoformat(),
+        "kind": msg.kind,
+        "service_action": msg.service_action,
+        "service_target_message_id": (
+            str(msg.service_target_message_id)
+            if msg.service_target_message_id
+            else None
+        ),
+        "forwarded_from_message_id": (
+            str(msg.forwarded_from_message_id)
+            if msg.forwarded_from_message_id
+            else None
+        ),
+        "forwarded_from_sender_id": (
+            str(msg.forwarded_from_sender_id)
+            if msg.forwarded_from_sender_id
+            else None
+        ),
+        "reply_to_message_id": (
+            str(msg.reply_to_message_id) if msg.reply_to_message_id else None
+        ),
+    }
+
+
 async def send_message(
     db: AsyncSession, chat_id: UUID, user_id: UUID, data: SendMessageRequest
 ) -> Message:
@@ -248,7 +312,9 @@ async def send_message(
         HTTPException: 403 if the sender is not a member of the chat, or if
             the chat is a personal "Уведомления" chat (read-only for
             everyone — the only way a message lands there is a broadcast,
-            see broadcast_message below, never this endpoint). 404 if
+            see broadcast_message below, never this endpoint); 400 if
+            `reply_to_message_id` names a service message (replies to
+            server-authored messages aren't meaningful). 404 if
             `reply_to_message_id` doesn't name an existing, non-deleted
             message in this same chat.
     """
@@ -264,6 +330,10 @@ async def send_message(
         )
         if replied_to is None or replied_to.is_deleted:
             raise HTTPException(status_code=404, detail="replied-to message not found")
+        if replied_to.kind == "service":
+            raise HTTPException(
+                status_code=400, detail="cannot reply to a service message"
+            )
 
     await _validate_attachments(chat_id, data.attachment_file_ids)
 
@@ -297,45 +367,58 @@ async def send_message(
 
     await nats_client.publish(
         SUBJECT_MESSAGE_CREATED,
-        {
-            "id": str(msg.id),
-            "chat_id": str(msg.chat_id),
-            "sender_id": str(msg.sender_id),
-            "recipient_ids": recipient_ids,
-            "body": msg.body,
-            "attachment_file_ids": [str(fid) for fid in data.attachment_file_ids],
-            "created_at": msg.created_at.isoformat(),
-        },
+        build_message_created_payload(msg, recipient_ids, data.attachment_file_ids),
     )
 
     return msg
 
 
-async def forward_message(
-    db: AsyncSession, chat_id: UUID, user_id: UUID, data: ForwardMessageRequest
-) -> Message:
-    """Copy an existing message (and its attachments) into another chat.
+_FORWARD_CLIENT_MSG_ID_NAMESPACE = UUID("8f3b1c2d-7e4a-4b5a-9c6d-1a2b3c4d5e6f")
 
-    The new message is its own independent row, not a live reference — if
-    the original is later edited or deleted, this copy is unaffected.
+
+def _forwarded_client_msg_id(
+    batch_client_msg_id: UUID, source_message_id: UUID
+) -> UUID:
+    """Derive one forwarded message's own client_msg_id from the batch key.
+
+    Deterministic (same inputs always produce the same id), so retrying an
+    entire forward request with the same batch `client_msg_id` hits the
+    existing `(sender_id, client_msg_id)` uniqueness check per message and
+    is naturally idempotent — no separate batch-idempotency table needed.
+    """
+    return uuid5(
+        _FORWARD_CLIENT_MSG_ID_NAMESPACE,
+        f"{batch_client_msg_id}:{source_message_id}",
+    )
+
+
+async def forward_messages(
+    db: AsyncSession, chat_id: UUID, user_id: UUID, data: ForwardMessageRequest
+) -> list[Message]:
+    """Copy one or more existing messages (and their attachments) into another chat.
+
+    Every new message is its own independent row, not a live reference —
+    if an original is later edited or deleted, its copy is unaffected.
     `forwarded_from_sender_id` is snapshotted at forward time for the same
     reason, rather than resolved via a join at read time.
 
     Args:
         db: Async database session.
         chat_id: Id of the chat to forward into.
-        user_id: Id of the user forwarding the message.
-        data: The source message to copy, and an idempotency key for the
-            new one.
+        user_id: Id of the user forwarding the messages.
+        data: The source messages to copy, and a batch idempotency key.
 
     Returns:
-        Message: The newly created (or, on a retried request, existing)
-        forwarded message.
+        list[Message]: The newly created (or, on a retried request,
+        already-existing) forwarded messages, in the same order the
+        originals were sent in.
 
     Raises:
         HTTPException: 403 if the user isn't a member of either chat, or
-            the target chat is read-only; 404 if the source message
-            doesn't exist in the source chat or was deleted.
+            the target chat is read-only; 400 if any source message is
+            itself a service message; 404 if any source message doesn't
+            exist in the source chat, was deleted, or wasn't found at all
+            (all-or-nothing — nothing is forwarded if any id is invalid).
     """
     await _require_membership(db, chat_id, user_id)
     await _require_membership(db, data.source_chat_id, user_id)
@@ -344,44 +427,55 @@ async def forward_message(
     if chat is not None and chat.type == "notifications":
         raise HTTPException(status_code=403, detail="this chat is read-only")
 
-    source = await chats_repository.get_message(
-        db, data.source_chat_id, data.source_message_id
-    )
-    if source is None or source.is_deleted:
+    sources_by_id = {
+        m.id: m
+        for m in await chats_repository.get_messages_by_ids(
+            db, data.source_message_ids
+        )
+        if m.chat_id == data.source_chat_id
+    }
+    missing = set(data.source_message_ids) - set(sources_by_id)
+    if missing:
         raise HTTPException(status_code=404, detail="message not found")
 
-    attachment_ids = await chats_repository.get_attachment_ids(db, source.id)
+    # Validate the whole batch before creating anything — all-or-nothing.
+    for source in sources_by_id.values():
+        if source.is_deleted:
+            raise HTTPException(status_code=404, detail="message not found")
+        if source.kind == "service":
+            raise HTTPException(
+                status_code=400, detail="cannot forward a service message"
+            )
 
-    msg, created = await chats_repository.create_message(
-        db,
-        chat_id,
-        user_id,
-        source.body,
-        data.client_msg_id,
-        forwarded_from_message_id=source.id,
-        forwarded_from_sender_id=source.sender_id,
-    )
+    sources = sorted(sources_by_id.values(), key=lambda m: m.created_at)
 
-    if created:
-        await chats_repository.add_attachments(db, msg.id, attachment_ids)
+    forwarded: list[Message] = []
+    for source in sources:
+        attachment_ids = await chats_repository.get_attachment_ids(db, source.id)
+        client_msg_id = _forwarded_client_msg_id(data.client_msg_id, source.id)
 
-    await db.commit()
+        msg, created = await chats_repository.create_message(
+            db,
+            chat_id,
+            user_id,
+            source.body,
+            client_msg_id,
+            forwarded_from_message_id=source.id,
+            forwarded_from_sender_id=source.sender_id,
+        )
 
-    recipient_ids = await _get_recipient_ids(db, chat_id)
-    await nats_client.publish(
-        SUBJECT_MESSAGE_CREATED,
-        {
-            "id": str(msg.id),
-            "chat_id": str(msg.chat_id),
-            "sender_id": str(msg.sender_id),
-            "recipient_ids": recipient_ids,
-            "body": msg.body,
-            "attachment_file_ids": [str(fid) for fid in attachment_ids],
-            "created_at": msg.created_at.isoformat(),
-        },
-    )
+        if created:
+            await chats_repository.add_attachments(db, msg.id, attachment_ids)
+        await db.commit()
 
-    return msg
+        recipient_ids = await _get_recipient_ids(db, chat_id)
+        await nats_client.publish(
+            SUBJECT_MESSAGE_CREATED,
+            build_message_created_payload(msg, recipient_ids, attachment_ids),
+        )
+        forwarded.append(msg)
+
+    return forwarded
 
 
 async def get_chat_messages(
@@ -470,11 +564,14 @@ async def edit_message(
         Message: The updated message.
 
     Raises:
-        HTTPException: 403 if the caller isn't the chat member/sender,
-            404 if the message doesn't exist.
+        HTTPException: 400 if the message is a service message (those can
+            never be edited), 403 if the caller isn't the chat
+            member/sender, 404 if the message doesn't exist.
     """
     await _require_membership(db, chat_id, user_id)
     message = await _get_owned_message(db, chat_id, message_id, user_id)
+    if message.kind == "service":
+        raise HTTPException(status_code=400, detail="cannot edit a service message")
     message = await chats_repository.update_message_body(db, message, body)
 
     recipient_ids = await _get_recipient_ids(db, chat_id, exclude_user_id=user_id)
@@ -535,6 +632,67 @@ async def delete_message(
         },
     )
     return message
+
+
+async def delete_messages(
+    db: AsyncSession, chat_id: UUID, user_id: UUID, message_ids: Sequence[UUID]
+) -> None:
+    """Soft-delete several of the caller's own messages in one chat at once.
+
+    All-or-nothing: every id must belong to this chat, be owned by the
+    caller, and not already be deleted — checked up front, before any
+    deletion happens, so a bad id in the batch leaves everything untouched.
+
+    Args:
+        db: Async database session.
+        chat_id: Id of the chat the messages belong to.
+        user_id: Id of the user requesting the deletion.
+        message_ids: Ids of the messages to delete.
+
+    Raises:
+        HTTPException: 403 if the caller isn't a member, or isn't the
+            sender of one of the messages; 404 if any message doesn't
+            exist in this chat or is already deleted.
+    """
+    await _require_membership(db, chat_id, user_id)
+
+    messages_by_id = {
+        m.id: m
+        for m in await chats_repository.get_messages_by_ids(db, message_ids)
+        if m.chat_id == chat_id
+    }
+    missing = set(message_ids) - set(messages_by_id)
+    if missing:
+        raise HTTPException(status_code=404, detail="message not found")
+
+    for message in messages_by_id.values():
+        if message.is_deleted:
+            raise HTTPException(status_code=404, detail="message not found")
+        if message.sender_id != user_id:
+            raise HTTPException(
+                status_code=403, detail="not the sender of this message"
+            )
+
+    messages = list(messages_by_id.values())
+    attachment_ids_by_message = await chats_repository.get_attachment_ids_bulk(
+        db, [m.id for m in messages]
+    )
+    await chats_repository.soft_delete_messages(db, messages)
+
+    recipient_ids = await _get_recipient_ids(db, chat_id, exclude_user_id=user_id)
+    for message in messages:
+        await nats_client.publish(
+            SUBJECT_MESSAGE_DELETED,
+            {
+                "id": str(message.id),
+                "chat_id": str(message.chat_id),
+                "sender_id": str(message.sender_id),
+                "recipient_ids": recipient_ids,
+                "attachment_file_ids": [
+                    str(fid) for fid in attachment_ids_by_message.get(message.id, [])
+                ],
+            },
+        )
 
 
 async def search_messages(
@@ -846,6 +1004,32 @@ async def remove_group_member(
     )
 
 
+async def _require_group_owner(db: AsyncSession, chat_id: UUID, actor_id: UUID) -> None:
+    """Raise unless the actor is this group chat's owner.
+
+    Args:
+        db: Async database session.
+        chat_id: Id of the chat.
+        actor_id: Id of the user performing the operation.
+
+    Raises:
+        HTTPException: 403 if the actor isn't a member, or isn't the group
+            owner; 409 if the chat isn't a group chat.
+    """
+    context = await chats_repository.get_chat_and_member(db, chat_id, actor_id)
+    if context is None:
+        raise HTTPException(status_code=403, detail="not a user chat")
+
+    chat, actor_membership = context
+    if chat.type != "group":
+        raise HTTPException(status_code=409, detail="only group chats have an owner")
+
+    if actor_membership.role != "owner":
+        raise HTTPException(
+            status_code=403, detail="only the group owner can do this"
+        )
+
+
 async def update_group_chat(
     db: AsyncSession,
     chat_id: UUID,
@@ -866,22 +1050,7 @@ async def update_group_chat(
         HTTPException: 404 if the group subtype row does not exist.
         HTTPException: 409 if the chat is not a group chat.
     """
-    context = await chats_repository.get_chat_and_member(db, chat_id, actor_id)
-    if context is None:
-        raise HTTPException(status_code=403, detail="not a user chat")
-
-    chat, actor_membership = context
-    if chat.type != "group":
-        raise HTTPException(
-            status_code=409,
-            detail="only group chats can be updated",
-        )
-
-    if actor_membership.role != "owner":
-        raise HTTPException(
-            status_code=403,
-            detail="only the group owner can update the group",
-        )
+    await _require_group_owner(db, chat_id, actor_id)
 
     title = data.title.strip()
     if not title:
@@ -894,6 +1063,80 @@ async def update_group_chat(
     if not updated:
         raise HTTPException(status_code=404, detail="group chat not found")
 
+    await _publish_chat_sync_required(db, chat_id, "updated")
+
+
+_ALLOWED_AVATAR_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+
+
+async def upload_group_avatar(
+    db: AsyncSession,
+    chat_id: UUID,
+    actor_id: UUID,
+    content_type: str,
+    declared_size: int | None,
+    body: AsyncIterator[bytes],
+) -> None:
+    """Stream a new group avatar into storage, replacing any existing one.
+
+    Args:
+        db: Async database session.
+        chat_id: Id of the group chat.
+        actor_id: Id of the user uploading the avatar (must be the owner).
+        content_type: MIME type of the uploaded image.
+        declared_size: Client-declared Content-Length, if any.
+        body: Async byte chunk iterator for the request body.
+
+    Raises:
+        HTTPException: 403 if the actor isn't the group owner, 409 if the
+            chat isn't a group chat, 415 for an unsupported content type,
+            413 if the image exceeds `max_avatar_size_bytes`.
+    """
+    await _require_group_owner(db, chat_id, actor_id)
+
+    if content_type not in _ALLOWED_AVATAR_CONTENT_TYPES:
+        raise HTTPException(status_code=415, detail="unsupported image type")
+    if declared_size is not None and declared_size > settings.max_avatar_size_bytes:
+        raise HTTPException(status_code=413, detail="avatar exceeds allowed size")
+
+    limit = settings.max_avatar_size_bytes
+
+    async def _bounded_body() -> AsyncIterator[bytes]:
+        received = 0
+        async for chunk in body:
+            received += len(chunk)
+            if received > limit:
+                raise HTTPException(
+                    status_code=413, detail="avatar exceeds allowed size"
+                )
+            yield chunk
+
+    await chats_storage.put_avatar(str(chat_id), content_type, _bounded_body())
+
+    # Cache-busting suffix: the storage key is fixed per chat, so without
+    # this a browser (or CDN) that cached the previous image by URL would
+    # keep showing it after a re-upload — same convention as identity's
+    # user avatars.
+    avatar_url = f"/chats/{chat_id}/avatar?v={uuid4().hex}"
+    await chats_repository.update_group_avatar_url(db, chat_id, avatar_url)
+    await _publish_chat_sync_required(db, chat_id, "updated")
+
+
+async def remove_group_avatar(db: AsyncSession, chat_id: UUID, actor_id: UUID) -> None:
+    """Delete a group chat's avatar blob and clear its avatar_url.
+
+    Args:
+        db: Async database session.
+        chat_id: Id of the group chat.
+        actor_id: Id of the user removing the avatar (must be the owner).
+
+    Raises:
+        HTTPException: 403 if the actor isn't the group owner, 409 if the
+            chat isn't a group chat.
+    """
+    await _require_group_owner(db, chat_id, actor_id)
+    await chats_storage.delete_avatar(str(chat_id))
+    await chats_repository.update_group_avatar_url(db, chat_id, None)
     await _publish_chat_sync_required(db, chat_id, "updated")
 
 

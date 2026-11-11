@@ -29,6 +29,58 @@ func TestBuildOutboundEvent(t *testing.T) {
 		if len(data.AttachmentFileIDs) != 2 || data.AttachmentFileIDs[0] != "f1" {
 			t.Fatalf("expected attachment_file_ids to survive, got %+v", data.AttachmentFileIDs)
 		}
+		if data.Kind != "text" {
+			t.Fatalf("expected kind to default to text, got %q", data.Kind)
+		}
+		if data.ReplyToMessageID != nil || data.ForwardedFromMessageID != nil {
+			t.Fatalf("expected no reply/forward attribution, got %+v", data)
+		}
+	})
+
+	t.Run("message created carries reply and forward attribution", func(t *testing.T) {
+		event := InboundEvent{
+			ID: "m2", ChatID: "c1", SenderID: "u1", Body: "hi",
+			ReplyToMessageID:       "m1",
+			ForwardedFromMessageID: "m0",
+			ForwardedFromSenderID:  "u0",
+		}
+		out, ok := buildOutboundEvent(subjectMessageCreated, event)
+		if !ok {
+			t.Fatal("expected ok=true")
+		}
+		data := out.Data.(MessageData)
+		if data.ReplyToMessageID == nil || *data.ReplyToMessageID != "m1" {
+			t.Fatalf("expected reply_to_message_id=m1, got %+v", data.ReplyToMessageID)
+		}
+		if data.ForwardedFromMessageID == nil || *data.ForwardedFromMessageID != "m0" {
+			t.Fatalf("expected forwarded_from_message_id=m0, got %+v", data.ForwardedFromMessageID)
+		}
+		if data.ForwardedFromSenderID == nil || *data.ForwardedFromSenderID != "u0" {
+			t.Fatalf("expected forwarded_from_sender_id=u0, got %+v", data.ForwardedFromSenderID)
+		}
+	})
+
+	t.Run("message created carries service message fields", func(t *testing.T) {
+		event := InboundEvent{
+			ID: "m3", ChatID: "c1", SenderID: "u1", Body: "Сообщение закреплено.",
+			Kind:                   "service",
+			ServiceAction:          "message_pinned",
+			ServiceTargetMessageID: "m1",
+		}
+		out, ok := buildOutboundEvent(subjectMessageCreated, event)
+		if !ok {
+			t.Fatal("expected ok=true")
+		}
+		data := out.Data.(MessageData)
+		if data.Kind != "service" {
+			t.Fatalf("expected kind=service, got %q", data.Kind)
+		}
+		if data.ServiceAction == nil || *data.ServiceAction != "message_pinned" {
+			t.Fatalf("expected service_action=message_pinned, got %+v", data.ServiceAction)
+		}
+		if data.ServiceTargetMessageID == nil || *data.ServiceTargetMessageID != "m1" {
+			t.Fatalf("expected service_target_message_id=m1, got %+v", data.ServiceTargetMessageID)
+		}
 	})
 
 	t.Run("message updated carries edited_at and attachment_file_ids", func(t *testing.T) {

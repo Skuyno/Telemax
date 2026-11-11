@@ -57,6 +57,7 @@ async def test_create_solo_group(
             "id": chat_id,
             "type": "group",
             "title": "My group",
+            "avatar_url": None,
             "last_message": None,
             "unread_count": 0,
             "is_pinned": False,

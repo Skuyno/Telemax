@@ -14,7 +14,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.chats import repository as chats_repository
 from app.chats.models import Message
-from app.chats.service import SUBJECT_CHAT_SYNC_REQUIRED
+from app.chats.service import (
+    SUBJECT_CHAT_SYNC_REQUIRED,
+    SUBJECT_MESSAGE_CREATED,
+    build_message_created_payload,
+)
 from app.events import nats_client
 from app.pins import repository as pins_repository
 
@@ -76,6 +80,41 @@ async def _notify_chat_sync(db: AsyncSession, chat_id: UUID, reason: str) -> Non
     )
 
 
+async def _create_pin_service_message(
+    db: AsyncSession, chat_id: UUID, target_message_id: UUID, user_id: UUID
+) -> None:
+    """Add a "message pinned" service message to the chat's history.
+
+    Not idempotency-keyed (client_msg_id=None) on purpose — every
+    chat-wide pin is a distinct, real event worth its own history entry,
+    including re-pinning the same message after an unpin.
+
+    Args:
+        db: Async database session.
+        chat_id: Id of the chat.
+        target_message_id: Id of the message that was pinned.
+        user_id: Id of the user who pinned it.
+    """
+    msg, _ = await chats_repository.create_message(
+        db,
+        chat_id,
+        user_id,
+        "Сообщение закреплено.",
+        None,
+        kind="service",
+        service_action="message_pinned",
+        service_target_message_id=target_message_id,
+    )
+    await db.commit()
+
+    members = await chats_repository.list_chat_members(db, chat_id)
+    recipient_ids = [str(member.user_id) for member in members]
+    await nats_client.publish(
+        SUBJECT_MESSAGE_CREATED,
+        build_message_created_payload(msg, recipient_ids, []),
+    )
+
+
 async def pin_message(
     db: AsyncSession, chat_id: UUID, message_id: UUID, user_id: UUID, scope: str
 ) -> None:
@@ -100,6 +139,7 @@ async def pin_message(
     if scope == "everyone":
         if await pins_repository.get_global_pin(db, chat_id, message_id) is None:
             await pins_repository.create_global_pin(db, chat_id, message_id, user_id)
+            await _create_pin_service_message(db, chat_id, message_id, user_id)
             await _notify_chat_sync(db, chat_id, "message_pinned")
         return
 
