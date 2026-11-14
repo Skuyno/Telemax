@@ -21,6 +21,27 @@ const composer = ref<{ reset: () => void; focus: () => void } | null>(null)
 const editing = ref<Message | null>(null)
 const replyingTo = ref<Message | null>(null)
 const forwarding = ref<Message[] | null>(null)
+const avatarView = ref<{ url: string; title: string } | null>(null)
+
+const canViewChatAvatar = computed(
+  () => Boolean(props.chat.avatarUrl) && !props.chat.isSaved && !isNotifications.value,
+)
+
+function openChatAvatar() {
+  if (canViewChatAvatar.value) avatarView.value = { url: props.chat.avatarUrl!, title: props.chat.title }
+}
+
+function openSenderAvatar(senderId: string) {
+  const url = senderAvatar(senderId)
+  if (!url) return
+  const title =
+    senderId === props.meId
+      ? (auth.user?.displayName ?? auth.user?.username ?? 'Вы')
+      : isGroup.value
+        ? senderName(senderId)
+        : props.chat.title
+  avatarView.value = { url, title }
+}
 const selectedIds = ref<Set<string>>(new Set())
 const pendingBulkRemoval = ref(false)
 
@@ -524,9 +545,17 @@ watch(
         </svg>
       </button>
 
-      <span class="dialog__avatar">
+      <span
+        class="dialog__avatar"
+        :class="{ 'is-clickable': canViewChatAvatar }"
+        :role="canViewChatAvatar ? 'button' : undefined"
+        :tabindex="canViewChatAvatar ? 0 : undefined"
+        :aria-label="canViewChatAvatar ? 'Открыть фото' : undefined"
+        @click="openChatAvatar"
+        @keydown.enter="openChatAvatar"
+      >
         <ChatSavedIcon v-if="chat.isSaved" />
-        <ChatGroupIcon v-else-if="chat.type === 'group'" />
+        <ChatGroupIcon v-else-if="chat.type === 'group' && !chat.avatarUrl" />
         <ChatNotificationsIcon v-else-if="isNotifications" />
         <UserAvatar v-else :url="chat.avatarUrl" :initials="chat.initials" />
         <span v-if="online" class="dialog__online" />
@@ -636,6 +665,7 @@ watch(
           :selecting="selecting"
           :selected="selectedIds.has(message.id)"
           @toggle-select="toggleSelect(message)"
+          @open-avatar="openSenderAvatar(message.senderId)"
           @edit="startEdit(message)"
           @remove="onRemove(message)"
           @reply="startReply(message)"
@@ -727,6 +757,13 @@ watch(
       :count="selectedMessages.length"
       @confirm="confirmBulkRemove"
       @cancel="pendingBulkRemoval = false"
+    />
+
+    <AvatarViewer
+      v-if="avatarView"
+      :url="avatarView.url"
+      :title="avatarView.title"
+      @close="avatarView = null"
     />
 
     <ChatPinScopeDialog
@@ -1039,6 +1076,15 @@ watch(
   .dialog__feed {
     padding-inline: 14px;
   }
+}
+
+.dialog__avatar.is-clickable {
+  cursor: zoom-in;
+}
+
+.dialog__avatar.is-clickable:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
 }
 
 .selection {

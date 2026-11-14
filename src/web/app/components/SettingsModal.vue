@@ -6,9 +6,6 @@ const settingsStore = useSettingsStore()
 const { load, update } = useSettings()
 const { logout, updateProfile, uploadAvatar, removeAvatar, resetPassword } = useAuth()
 
-const AVATAR_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
-const AVATAR_MAX_BYTES = 5 * 1024 * 1024
-
 const avatarInput = ref<HTMLInputElement | null>(null)
 const isAvatarBusy = ref(false)
 const avatarError = ref('')
@@ -23,15 +20,8 @@ async function onAvatarChosen(event: Event) {
   input.value = ''
   if (!file) return
 
-  avatarError.value = ''
-  if (!AVATAR_TYPES.includes(file.type)) {
-    avatarError.value = 'Подойдёт картинка в формате JPG, PNG, WEBP или GIF'
-    return
-  }
-  if (file.size > AVATAR_MAX_BYTES) {
-    avatarError.value = 'Файл больше 5 МБ — выберите картинку поменьше'
-    return
-  }
+  avatarError.value = avatarFileError(file)
+  if (avatarError.value) return
 
   isAvatarBusy.value = true
   try {

@@ -88,6 +88,7 @@ export interface ChatResponse {
   title: string | null
   unread_count: number
   is_pinned: boolean
+  avatar_url?: string | null
   last_message: {
     body: string
     sender_id: string

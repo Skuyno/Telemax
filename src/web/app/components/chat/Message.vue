@@ -25,6 +25,7 @@ const emit = defineEmits<{
   jumpReply: []
   menu: [x: number, y: number]
   toggleSelect: []
+  openAvatar: []
 }>()
 
 const { onClickCapture, listeners } = useLongPress((x, y) => {
@@ -63,7 +64,16 @@ const hasCaption = computed(() => hasMedia.value && Boolean(props.message.body))
         <path d="M5 12.5l4.5 4.5L19 7.5" />
       </svg>
     </span>
-    <span class="line__avatar">
+    <button
+      v-if="avatarUrl"
+      type="button"
+      class="line__avatar is-clickable"
+      aria-label="Открыть фото"
+      @click="emit('openAvatar')"
+    >
+      <UserAvatar :url="avatarUrl" :initials="initials" />
+    </button>
+    <span v-else class="line__avatar">
       <UserAvatar :url="avatarUrl" :initials="initials" />
     </span>
 
@@ -262,6 +272,11 @@ const hasCaption = computed(() => hasMedia.value && Boolean(props.message.body))
   font-weight: 600;
   font-size: 11px;
   color: var(--color-accent);
+}
+
+.line__avatar.is-clickable {
+  padding: 0;
+  cursor: zoom-in;
 }
 
 .bubble {

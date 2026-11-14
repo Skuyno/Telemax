@@ -110,7 +110,11 @@ export function useChats() {
             title,
             initials: toInitials(title),
             peerId: peerIds[index]!,
-            avatarUrl: isGroup || isSaved || isNotifications ? null : (peer?.avatar_url ?? null),
+            avatarUrl: isGroup
+              ? (chat.avatar_url ?? null)
+              : isSaved || isNotifications
+                ? null
+                : (peer?.avatar_url ?? null),
             unreadCount: chat.unread_count,
             memberCount: isGroup ? members[index]!.length : undefined,
             isSaved,
@@ -402,6 +406,20 @@ export function useChats() {
     chatStore.patchChat(chatId, { title: next, initials: toInitials(next) })
   }
 
+  async function uploadGroupAvatar(chatId: string, file: File) {
+    await api(`/chats/${chatId}/avatar`, {
+      method: 'PUT',
+      body: file,
+      headers: { 'Content-Type': file.type },
+    })
+    await loadChats()
+  }
+
+  async function removeGroupAvatar(chatId: string) {
+    await api(`/chats/${chatId}/avatar`, { method: 'DELETE' })
+    await loadChats()
+  }
+
   async function pinChat(chatId: string, pinned: boolean) {
     chatStore.setPinned(chatId, pinned)
     try {
@@ -599,6 +617,8 @@ export function useChats() {
     openChatWith,
     openSavedChat,
     pinChat,
+    uploadGroupAvatar,
+    removeGroupAvatar,
     createGroupChat,
     loadMembers,
     ensureProfiles,

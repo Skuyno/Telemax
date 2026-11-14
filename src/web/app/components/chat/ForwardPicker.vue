@@ -80,7 +80,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
           >
             <span class="results__avatar">
               <ChatSavedIcon v-if="chat.isSaved" />
-              <ChatGroupIcon v-else-if="chat.type === 'group'" />
+              <ChatGroupIcon v-else-if="chat.type === 'group' && !chat.avatarUrl" />
               <UserAvatar v-else :url="chat.avatarUrl" :initials="chat.initials" />
             </span>
             <span class="results__name">{{ chat.title }}</span>
