@@ -1,5 +1,15 @@
 <script setup lang="ts">
-const props = defineProps<{ open: boolean; busy?: boolean }>()
+const props = defineProps<{ open: boolean; busy?: boolean; count?: number }>()
+
+const title = computed(() => {
+  const count = props.count ?? 1
+  if (count === 1) return 'Удалить сообщение?'
+  const tail = count % 10
+  const teens = count % 100
+  if (tail === 1 && teens !== 11) return `Удалить ${count} сообщение?`
+  if (tail >= 2 && tail <= 4 && (teens < 12 || teens > 14)) return `Удалить ${count} сообщения?`
+  return `Удалить ${count} сообщений?`
+})
 
 const emit = defineEmits<{ confirm: []; cancel: [] }>()
 
@@ -31,8 +41,13 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
         @click.self="emit('cancel')"
       >
         <div class="confirm__card">
-          <h2 class="confirm__title">Удалить сообщение?</h2>
-          <p class="confirm__text">Оно пропадёт у всех участников чата. Вернуть его не выйдет.</p>
+          <h2 class="confirm__title">{{ title }}</h2>
+          <p v-if="(count ?? 1) > 1" class="confirm__text">
+            Они пропадут у всех участников чата. Вернуть их не выйдет.
+          </p>
+          <p v-else class="confirm__text">
+            Оно пропадёт у всех участников чата. Вернуть его не выйдет.
+          </p>
 
           <div class="confirm__actions">
             <button type="button" class="confirm__btn" @click="emit('cancel')">Отмена</button>

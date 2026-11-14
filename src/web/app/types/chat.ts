@@ -29,6 +29,9 @@ export interface Message {
   attachmentIds: string[]
   replyToId?: string | null
   forwardedFromSenderId?: string | null
+  isService?: boolean
+  serviceAction?: string | null
+  serviceTargetId?: string | null
 }
 
 export type PinScope = 'me' | 'everyone'
@@ -87,6 +90,7 @@ export interface ChatResponse {
   title: string | null
   unread_count: number
   is_pinned: boolean
+  avatar_url?: string | null
   last_message: {
     body: string
     sender_id: string
@@ -113,6 +117,9 @@ export interface MessageResponse {
   attachment_file_ids: string[]
   reply_to_message_id?: string | null
   forwarded_from_sender_id?: string | null
+  kind?: 'text' | 'service'
+  service_action?: string | null
+  service_target_message_id?: string | null
 }
 
 export interface PinnedMessageResponse extends MessageResponse {
@@ -139,6 +146,11 @@ export interface MessageCreatedEvent {
     sender_id: string
     body: string
     created_at: string
+    reply_to_message_id?: string
+    forwarded_from_sender_id?: string
+    kind?: 'text' | 'service'
+    service_action?: string
+    service_target_message_id?: string
   }
 }
 

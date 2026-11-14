@@ -14,6 +14,8 @@ const props = defineProps<{
   quote?: { authorName: string; body: string } | null
   forwardedFrom?: string
   canReply?: boolean
+  selecting?: boolean
+  selected?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -22,11 +24,21 @@ const emit = defineEmits<{
   reply: []
   jumpReply: []
   menu: [x: number, y: number]
+  toggleSelect: []
+  openAvatar: []
 }>()
 
 const { onClickCapture, listeners } = useLongPress((x, y) => {
-  if (!props.message.isDeleted) emit('menu', x, y)
+  if (props.message.isDeleted || props.selecting) return
+  emit('menu', x, y)
 })
+
+function onLineClickCapture(event: MouseEvent) {
+  if (!props.selecting) return
+  event.preventDefault()
+  event.stopPropagation()
+  if (!props.message.isService) emit('toggleSelect')
+}
 
 const hasMedia = computed(
   () => !props.message.isDeleted && props.message.attachmentIds.length > 0,
@@ -40,10 +52,28 @@ const hasCaption = computed(() => hasMedia.value && Boolean(props.message.body))
 <template>
   <div
     class="line"
-    :class="[own ? 'line--out' : 'line--in', { 'is-highlighted': highlighted }]"
+    :class="[
+      own ? 'line--out' : 'line--in',
+      { 'is-highlighted': highlighted, 'is-selecting': selecting, 'is-selected': selected },
+    ]"
     :data-message-id="message.id"
+    @click.capture="onLineClickCapture"
   >
-    <span class="line__avatar">
+    <span v-if="selecting" class="line__check" aria-hidden="true">
+      <svg v-if="selected" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+        <path d="M5 12.5l4.5 4.5L19 7.5" />
+      </svg>
+    </span>
+    <button
+      v-if="avatarUrl"
+      type="button"
+      class="line__avatar is-clickable"
+      aria-label="Открыть фото"
+      @click="emit('openAvatar')"
+    >
+      <UserAvatar :url="avatarUrl" :initials="initials" />
+    </button>
+    <span v-else class="line__avatar">
       <UserAvatar :url="avatarUrl" :initials="initials" />
     </span>
 
@@ -130,7 +160,7 @@ const hasCaption = computed(() => hasMedia.value && Boolean(props.message.body))
       </span>
     </div>
 
-    <div v-if="(own || canReply) && !message.isDeleted" class="line__actions">
+    <div v-if="(own || canReply) && !message.isDeleted && !selecting" class="line__actions">
       <button
         v-if="canReply"
         type="button"
@@ -194,6 +224,40 @@ const hasCaption = computed(() => hasMedia.value && Boolean(props.message.body))
   background: rgba(79, 216, 255, 0.12);
 }
 
+.line.is-selecting {
+  position: relative;
+  padding-left: 40px;
+  cursor: pointer;
+}
+
+.line.is-selected {
+  background: rgba(255, 204, 46, 0.08);
+}
+
+.line__check {
+  position: absolute;
+  top: 50%;
+  left: 6px;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 2px solid var(--color-line);
+  border-radius: 50%;
+  color: var(--color-ink);
+  transform: translateY(-50%);
+}
+
+.line.is-selected .line__check {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+.line__check svg {
+  width: 14px;
+  height: 14px;
+}
+
 .line__avatar {
   display: flex;
   align-items: center;
@@ -208,6 +272,11 @@ const hasCaption = computed(() => hasMedia.value && Boolean(props.message.body))
   font-weight: 600;
   font-size: 11px;
   color: var(--color-accent);
+}
+
+.line__avatar.is-clickable {
+  padding: 0;
+  cursor: zoom-in;
 }
 
 .bubble {

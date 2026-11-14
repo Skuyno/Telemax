@@ -6,7 +6,59 @@ const props = defineProps<{ chat: Chat }>()
 const emit = defineEmits<{ close: [] }>()
 
 const chatStore = useChatStore()
-const { loadMembers, addMembers, removeMember, renameGroup, searchUsers } = useChats()
+const {
+  loadMembers,
+  addMembers,
+  removeMember,
+  renameGroup,
+  searchUsers,
+  uploadGroupAvatar,
+  removeGroupAvatar,
+} = useChats()
+
+const avatarInput = ref<HTMLInputElement | null>(null)
+const isAvatarBusy = ref(false)
+const avatarView = ref<{ url: string; title: string } | null>(null)
+
+function onPhotoClick() {
+  if (props.chat.avatarUrl) avatarView.value = { url: props.chat.avatarUrl, title: props.chat.title }
+  else pickAvatar()
+}
+
+function pickAvatar() {
+  if (!isAvatarBusy.value) avatarInput.value?.click()
+}
+
+async function onAvatarChosen(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+
+  error.value = avatarFileError(file)
+  if (error.value) return
+
+  isAvatarBusy.value = true
+  try {
+    await uploadGroupAvatar(props.chat.id, file)
+  } catch (e) {
+    error.value = extractApiErrorMessage(e, 'Не удалось загрузить фото')
+  } finally {
+    isAvatarBusy.value = false
+  }
+}
+
+async function onAvatarRemove() {
+  error.value = ''
+  isAvatarBusy.value = true
+  try {
+    await removeGroupAvatar(props.chat.id)
+  } catch (e) {
+    error.value = extractApiErrorMessage(e, 'Не удалось удалить фото')
+  } finally {
+    isAvatarBusy.value = false
+  }
+}
 
 const members = ref<GroupMember[]>([])
 const isLoading = ref(true)
@@ -111,7 +163,7 @@ async function onRename() {
 }
 
 function onKeydown(event: KeyboardEvent) {
-  if (event.key === 'Escape') emit('close')
+  if (event.key === 'Escape' && !avatarView.value) emit('close')
 }
 
 onMounted(() => {
@@ -145,6 +197,47 @@ onBeforeUnmount(() => {
             </svg>
           </button>
         </header>
+
+        <div class="photo">
+          <button
+            type="button"
+            class="photo__avatar"
+            :class="{ 'is-editable': iAmOwner, 'is-viewable': chat.avatarUrl }"
+            :disabled="(!iAmOwner && !chat.avatarUrl) || isAvatarBusy"
+            :aria-label="chat.avatarUrl ? 'Открыть фото группы' : 'Добавить фото группы'"
+            @click="onPhotoClick"
+          >
+            <UserAvatar v-if="chat.avatarUrl" :url="chat.avatarUrl" :initials="chat.initials" />
+            <ChatGroupIcon v-else />
+            <span v-if="iAmOwner" class="photo__camera" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M4 8h3l2-3h6l2 3h3v11H4z" />
+                <circle cx="12" cy="13" r="3.5" />
+              </svg>
+            </span>
+          </button>
+          <input
+            ref="avatarInput"
+            class="photo__file"
+            type="file"
+            :accept="AVATAR_TYPES.join(',')"
+            @change="onAvatarChosen"
+          />
+          <div v-if="iAmOwner" class="photo__actions">
+            <button type="button" class="photo__link" :disabled="isAvatarBusy" @click="pickAvatar">
+              {{ isAvatarBusy ? 'Загружаем…' : chat.avatarUrl ? 'Сменить фото' : 'Добавить фото' }}
+            </button>
+            <button
+              v-if="chat.avatarUrl"
+              type="button"
+              class="photo__link is-danger"
+              :disabled="isAvatarBusy"
+              @click="onAvatarRemove"
+            >
+              Удалить фото
+            </button>
+          </div>
+        </div>
 
         <label class="field">
           <span class="field__label">Название</span>
@@ -198,7 +291,16 @@ onBeforeUnmount(() => {
           <p v-if="isLoading" class="note">Загружаем…</p>
 
           <div v-for="member in members" v-else :key="member.id" class="row is-static">
-            <span class="row__avatar">
+            <button
+              v-if="member.avatarUrl"
+              type="button"
+              class="row__avatar is-viewable"
+              :aria-label="`Открыть фото: ${member.title}`"
+              @click="avatarView = { url: member.avatarUrl, title: member.title }"
+            >
+              <UserAvatar :url="member.avatarUrl" :initials="member.initials" />
+            </button>
+            <span v-else class="row__avatar">
               <UserAvatar :url="member.avatarUrl" :initials="member.initials" />
             </span>
             <span class="row__text">
@@ -242,6 +344,13 @@ onBeforeUnmount(() => {
       </div>
     </div>
   </Teleport>
+
+  <AvatarViewer
+    v-if="avatarView"
+    :url="avatarView.url"
+    :title="avatarView.title"
+    @close="avatarView = null"
+  />
 </template>
 
 <style scoped>
@@ -306,6 +415,100 @@ onBeforeUnmount(() => {
 .card__close svg {
   width: 18px;
   height: 18px;
+}
+
+.photo {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.photo__avatar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 72px;
+  height: 72px;
+  flex: none;
+  padding: 0;
+  background: var(--color-surface);
+  border: 1px solid var(--chat-accent-soft, var(--color-line));
+  border-radius: 16px;
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 18px;
+  color: var(--color-accent);
+}
+
+.photo__avatar:disabled {
+  cursor: default;
+}
+
+.photo__avatar.is-editable:not(:disabled) {
+  cursor: pointer;
+}
+
+.photo__avatar.is-viewable:not(:disabled),
+.row__avatar.is-viewable {
+  cursor: zoom-in;
+}
+
+.row__avatar.is-viewable {
+  padding: 0;
+}
+
+.photo__camera {
+  position: absolute;
+  right: -6px;
+  bottom: -6px;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  background: var(--color-accent);
+  border: 2px solid var(--color-lift);
+  border-radius: 8px;
+  color: var(--color-ink);
+}
+
+.photo__camera svg {
+  width: 14px;
+  height: 14px;
+}
+
+.photo__file {
+  display: none;
+}
+
+.photo__actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.photo__link {
+  padding: 0;
+  background: none;
+  border: none;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--color-accent);
+  cursor: pointer;
+}
+
+.photo__link.is-danger {
+  color: var(--color-error);
+}
+
+.photo__link:hover:not(:disabled) {
+  text-decoration: underline;
+}
+
+.photo__link:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .field {
