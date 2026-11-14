@@ -36,6 +36,7 @@ function toMessage(raw: MessageResponse): Message {
     attachmentIds: raw.attachment_file_ids ?? [],
     replyToId: raw.reply_to_message_id ?? null,
     forwardedFromSenderId: raw.forwarded_from_sender_id ?? null,
+    isService: raw.kind === 'service',
   }
 }
 
@@ -178,17 +179,18 @@ export function useChats() {
     chatStore.addMessage(toMessage(saved))
   }
 
-  async function forwardMessage(targetChatId: string, source: Message) {
-    const saved = await api<MessageResponse>(`/chats/${targetChatId}/messages/forward`, {
+  async function forwardMessages(targetChatId: string, sources: Message[]) {
+    if (!sources.length) return
+    const saved = await api<MessageResponse[]>(`/chats/${targetChatId}/messages/forward`, {
       method: 'POST',
       body: {
-        source_chat_id: source.chatId,
-        source_message_id: source.id,
+        source_chat_id: sources[0]!.chatId,
+        source_message_ids: sources.map((message) => message.id),
         client_msg_id: randomId(),
       },
     })
-    chatStore.addMessage(toMessage(saved))
-    ensureProfiles(authorIds([saved]))
+    for (const raw of saved) chatStore.addMessage(toMessage(raw))
+    ensureProfiles(authorIds(saved))
   }
 
   async function loadPinned(chatId: string) {
@@ -223,6 +225,17 @@ export function useChats() {
   async function deleteMessage(chatId: string, messageId: string) {
     await api(`/chats/${chatId}/messages/${messageId}`, { method: 'DELETE' })
     chatStore.patchMessage(chatId, messageId, { isDeleted: true, body: '', attachmentIds: [] })
+  }
+
+  async function deleteMessages(chatId: string, messageIds: string[]) {
+    if (!messageIds.length) return
+    await api(`/chats/${chatId}/messages/delete`, {
+      method: 'POST',
+      body: { message_ids: messageIds },
+    })
+    for (const messageId of messageIds) {
+      chatStore.patchMessage(chatId, messageId, { isDeleted: true, body: '', attachmentIds: [] })
+    }
   }
 
   async function searchMessages(chatId: string, query: string): Promise<Message[]> {
@@ -455,11 +468,18 @@ export function useChats() {
           editedAt: null,
           isDeleted: false,
           attachmentIds: [],
+          replyToId: data.reply_to_message_id ?? null,
+          forwardedFromSenderId: data.forwarded_from_sender_id ?? null,
+          isService: data.kind === 'service',
         })
         if (data.chat_id === chatStore.activeChatId && data.sender_id !== chatStore.meId) {
           syncRecentMessages(data.chat_id)
         }
-        ensureProfiles([data.sender_id])
+        ensureProfiles(
+          data.forwarded_from_sender_id
+            ? [data.sender_id, data.forwarded_from_sender_id]
+            : [data.sender_id],
+        )
 
         // Написал человек, с которым чата ещё нет в списке, — подтягиваем список заново.
         if (!isKnownChat) loadChats()
@@ -570,7 +590,8 @@ export function useChats() {
     loadMessages,
     loadOlderMessages,
     sendMessage,
-    forwardMessage,
+    forwardMessages,
+    deleteMessages,
     loadPinned,
     pinMessage,
     unpinMessage,

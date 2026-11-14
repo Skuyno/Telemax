@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import type { Chat, Message } from '~/types/chat'
 
-const props = defineProps<{ message: Message }>()
+const props = defineProps<{ messages: Message[] }>()
 
 const emit = defineEmits<{ close: []; forwarded: [string] }>()
 
 const chatStore = useChatStore()
-const { forwardMessage } = useChats()
+const { forwardMessages } = useChats()
 
 const query = ref('')
 const sendingTo = ref<string | null>(null)
@@ -26,10 +26,13 @@ async function onPick(chat: Chat) {
   sendingTo.value = chat.id
   error.value = ''
   try {
-    await forwardMessage(chat.id, props.message)
+    await forwardMessages(chat.id, props.messages)
     emit('forwarded', chat.id)
   } catch (e) {
-    error.value = extractApiErrorMessage(e, 'Не удалось переслать сообщение')
+    error.value = extractApiErrorMessage(
+      e,
+      props.messages.length > 1 ? 'Не удалось переслать сообщения' : 'Не удалось переслать сообщение',
+    )
   } finally {
     sendingTo.value = null
   }
@@ -53,7 +56,9 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
       @click.self="emit('close')"
     >
       <div class="card">
-        <h2 class="card__title">Переслать</h2>
+        <h2 class="card__title">
+          Переслать<template v-if="messages.length > 1"> ({{ messages.length }})</template>
+        </h2>
 
         <input
           v-model="query"

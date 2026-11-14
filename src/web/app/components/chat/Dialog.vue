@@ -14,12 +14,73 @@ const emit = defineEmits<{ back: []; loadOlder: []; typing: [] }>()
 
 const auth = useAuthStore()
 const chatStore = useChatStore()
-const { editMessage, deleteMessage, loadUntil, pinMessage, unpinMessage } = useChats()
+const { editMessage, deleteMessage, deleteMessages, loadUntil, pinMessage, unpinMessage } =
+  useChats()
 
 const composer = ref<{ reset: () => void; focus: () => void } | null>(null)
 const editing = ref<Message | null>(null)
 const replyingTo = ref<Message | null>(null)
-const forwarding = ref<Message | null>(null)
+const forwarding = ref<Message[] | null>(null)
+const selectedIds = ref<Set<string>>(new Set())
+const pendingBulkRemoval = ref(false)
+
+const selectedMessages = computed(() =>
+  props.messages.filter((message) => selectedIds.value.has(message.id) && !message.isDeleted),
+)
+
+const selecting = computed(() => selectedMessages.value.length > 0)
+
+const canDeleteSelected = computed(
+  () =>
+    selectedMessages.value.length > 0 &&
+    selectedMessages.value.every((message) => message.senderId === props.meId),
+)
+
+function toggleSelect(message: Message) {
+  if (message.isDeleted || message.isService) return
+  const next = new Set(selectedIds.value)
+  if (next.has(message.id)) next.delete(message.id)
+  else next.add(message.id)
+  selectedIds.value = next
+}
+
+function clearSelection() {
+  selectedIds.value = new Set()
+}
+
+function forwardSelected() {
+  if (selectedMessages.value.length) forwarding.value = [...selectedMessages.value]
+}
+
+async function confirmBulkRemove() {
+  const ids = selectedMessages.value.map((message) => message.id)
+  if (!ids.length || isRemoving.value) return
+
+  isRemoving.value = true
+  sendError.value = ''
+  try {
+    await deleteMessages(props.chat.id, ids)
+    if (editing.value && ids.includes(editing.value.id)) cancelEdit()
+    if (replyingTo.value && ids.includes(replyingTo.value.id)) replyingTo.value = null
+    clearSelection()
+  } catch (e) {
+    sendError.value = extractApiErrorMessage(e, 'Не удалось удалить сообщения')
+  } finally {
+    pendingBulkRemoval.value = false
+    isRemoving.value = false
+  }
+}
+
+function onSelectionKeydown(event: KeyboardEvent) {
+  if (event.key === 'Escape' && !forwarding.value && !pendingBulkRemoval.value) clearSelection()
+}
+
+watch(selecting, (active) => {
+  if (active) window.addEventListener('keydown', onSelectionKeydown)
+  else window.removeEventListener('keydown', onSelectionKeydown)
+})
+
+onBeforeUnmount(() => window.removeEventListener('keydown', onSelectionKeydown))
 const pendingRemoval = ref<Message | null>(null)
 const isRemoving = ref(false)
 const isSending = ref(false)
@@ -142,6 +203,7 @@ function onPinScope(scope: PinScope) {
 
 function onForwarded(chatId: string) {
   forwarding.value = null
+  clearSelection()
   chatStore.setActiveChat(chatId)
 }
 
@@ -190,6 +252,7 @@ const menuItems = computed(() => {
   return [
     ...(isNotifications.value ? [] : [{ key: 'reply', label: 'Ответить' }]),
     { key: 'forward', label: 'Переслать' },
+    { key: 'select', label: 'Выбрать' },
     pinnedIds.value.has(message.id)
       ? { key: 'unpin', label: 'Открепить' }
       : { key: 'pin', label: 'Закрепить' },
@@ -199,7 +262,7 @@ const menuItems = computed(() => {
 })
 
 function openMessageMenu(message: Message, x: number, y: number) {
-  const height = 12 + MESSAGE_MENU_ITEM_HEIGHT * 5
+  const height = 12 + MESSAGE_MENU_ITEM_HEIGHT * 6
   messageMenu.value = {
     message,
     x: Math.max(8, Math.min(x, window.innerWidth - MESSAGE_MENU_WIDTH - 8)),
@@ -216,7 +279,8 @@ function onMessageMenuAction(key: string) {
   closeMessageMenu()
   if (!message) return
   if (key === 'reply') startReply(message)
-  else if (key === 'forward') forwarding.value = message
+  else if (key === 'forward') forwarding.value = [message]
+  else if (key === 'select') toggleSelect(message)
   else if (key === 'pin') startPin(message)
   else if (key === 'unpin') startUnpin(message)
   else if (key === 'edit') startEdit(message)
@@ -438,6 +502,8 @@ watch(
     editing.value = null
     replyingTo.value = null
     forwarding.value = null
+    selectedIds.value = new Set()
+    pendingBulkRemoval.value = false
     messageMenu.value = null
     pinFlow.value = null
     pinnedIndex.value = 0
@@ -567,6 +633,9 @@ watch(
           :quote="quoteFor(message)"
           :forwarded-from="forwardedName(message)"
           :can-reply="!isNotifications"
+          :selecting="selecting"
+          :selected="selectedIds.has(message.id)"
+          @toggle-select="toggleSelect(message)"
           @edit="startEdit(message)"
           @remove="onRemove(message)"
           @reply="startReply(message)"
@@ -591,7 +660,43 @@ watch(
 
     <p v-if="sendError" class="dialog__error">{{ sendError }}</p>
 
-    <p v-if="isNotifications" class="dialog__readonly">
+    <div v-if="selecting" class="selection">
+      <button
+        type="button"
+        class="selection__btn"
+        aria-label="Отменить выделение"
+        title="Отмена"
+        @click="clearSelection"
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <path d="M18 6 6 18" />
+          <path d="M6 6l12 12" />
+        </svg>
+      </button>
+      <span class="selection__count">Выбрано: {{ selectedMessages.length }}</span>
+      <button type="button" class="selection__action" @click="forwardSelected">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <path d="M14 9V5l7 7-7 7v-4.1c-5 0-8.5 1.6-11 5.1 1-5 4-10 11-11z" />
+        </svg>
+        <span class="selection__label">Переслать</span>
+      </button>
+      <button
+        type="button"
+        class="selection__action is-danger"
+        :disabled="!canDeleteSelected"
+        :title="canDeleteSelected ? undefined : 'Удалять можно только свои сообщения'"
+        @click="pendingBulkRemoval = true"
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <path d="M4 7h16" />
+          <path d="M9 7V4h6v3" />
+          <path d="M6 7l1 13h10l1-13" />
+        </svg>
+        <span class="selection__label">Удалить</span>
+      </button>
+    </div>
+
+    <p v-else-if="isNotifications" class="dialog__readonly">
       Это системный чат с уведомлениями — отправка сообщений недоступна.
     </p>
     <ChatComposer
@@ -616,6 +721,14 @@ watch(
       @cancel="pendingRemoval = null"
     />
 
+    <ChatDeleteConfirm
+      :open="pendingBulkRemoval"
+      :busy="isRemoving"
+      :count="selectedMessages.length"
+      @confirm="confirmBulkRemove"
+      @cancel="pendingBulkRemoval = false"
+    />
+
     <ChatPinScopeDialog
       :mode="pinFlow?.mode ?? null"
       :busy="isPinning"
@@ -625,7 +738,7 @@ watch(
 
     <ChatForwardPicker
       v-if="forwarding"
-      :message="forwarding"
+      :messages="forwarding"
       @close="forwarding = null"
       @forwarded="onForwarded"
     />
@@ -657,6 +770,10 @@ watch(
                 v-else-if="item.key === 'forward'"
                 d="M14 9V5l7 7-7 7v-4.1c-5 0-8.5 1.6-11 5.1 1-5 4-10 11-11z"
               />
+              <template v-else-if="item.key === 'select'">
+                <circle cx="12" cy="12" r="9" />
+                <path d="M8 12.5l3 3 5-6" />
+              </template>
               <template v-else-if="item.key === 'pin' || item.key === 'unpin'">
                 <path d="M9 4h6l-1 6 3 3H7l3-3z" />
                 <path d="M12 13v7" />
@@ -921,6 +1038,100 @@ watch(
 
   .dialog__feed {
     padding-inline: 14px;
+  }
+}
+
+.selection {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+  padding: 16px 20px;
+  background: var(--color-lift);
+  border-top: 1px solid var(--chat-line);
+}
+
+.selection__btn {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  flex: none;
+  padding: 0;
+  background: var(--color-ground);
+  border: 1px solid var(--chat-line);
+  border-radius: var(--chat-radius-lg);
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.selection__btn:hover {
+  color: var(--color-accent);
+  border-color: var(--chat-accent-soft);
+}
+
+.selection__btn svg,
+.selection__action svg {
+  width: 18px;
+  height: 18px;
+  flex: none;
+}
+
+.selection__count {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--color-text);
+}
+
+.selection__action {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 44px;
+  flex: none;
+  padding: 0 18px;
+  background: var(--color-accent);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--chat-radius-lg);
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--color-ink);
+  cursor: pointer;
+}
+
+.selection__action:hover:not(:disabled) {
+  background: var(--color-accent-hover);
+}
+
+.selection__action.is-danger {
+  background: var(--color-ground);
+  border-color: var(--chat-line);
+  color: var(--color-error);
+}
+
+.selection__action.is-danger:hover:not(:disabled) {
+  background: var(--color-surface);
+  border-color: var(--color-error);
+}
+
+.selection__action:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+@media (max-width: 520px) {
+  .selection__label {
+    display: none;
+  }
+
+  .selection__action {
+    width: 44px;
+    justify-content: center;
+    padding: 0;
   }
 }
 

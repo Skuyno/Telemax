@@ -29,6 +29,7 @@ export interface Message {
   attachmentIds: string[]
   replyToId?: string | null
   forwardedFromSenderId?: string | null
+  isService?: boolean
 }
 
 export type PinScope = 'me' | 'everyone'
@@ -113,6 +114,7 @@ export interface MessageResponse {
   attachment_file_ids: string[]
   reply_to_message_id?: string | null
   forwarded_from_sender_id?: string | null
+  kind?: 'text' | 'service'
 }
 
 export interface PinnedMessageResponse extends MessageResponse {
@@ -139,6 +141,9 @@ export interface MessageCreatedEvent {
     sender_id: string
     body: string
     created_at: string
+    reply_to_message_id?: string
+    forwarded_from_sender_id?: string
+    kind?: 'text' | 'service'
   }
 }
 
