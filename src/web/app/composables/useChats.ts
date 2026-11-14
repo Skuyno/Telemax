@@ -37,6 +37,8 @@ function toMessage(raw: MessageResponse): Message {
     replyToId: raw.reply_to_message_id ?? null,
     forwardedFromSenderId: raw.forwarded_from_sender_id ?? null,
     isService: raw.kind === 'service',
+    serviceAction: raw.service_action ?? null,
+    serviceTargetId: raw.service_target_message_id ?? null,
   }
 }
 
@@ -489,6 +491,8 @@ export function useChats() {
           replyToId: data.reply_to_message_id ?? null,
           forwardedFromSenderId: data.forwarded_from_sender_id ?? null,
           isService: data.kind === 'service',
+          serviceAction: data.service_action ?? null,
+          serviceTargetId: data.service_target_message_id ?? null,
         })
         if (data.chat_id === chatStore.activeChatId && data.sender_id !== chatStore.meId) {
           syncRecentMessages(data.chat_id)

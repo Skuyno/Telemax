@@ -30,6 +30,8 @@ export interface Message {
   replyToId?: string | null
   forwardedFromSenderId?: string | null
   isService?: boolean
+  serviceAction?: string | null
+  serviceTargetId?: string | null
 }
 
 export type PinScope = 'me' | 'everyone'
@@ -116,6 +118,8 @@ export interface MessageResponse {
   reply_to_message_id?: string | null
   forwarded_from_sender_id?: string | null
   kind?: 'text' | 'service'
+  service_action?: string | null
+  service_target_message_id?: string | null
 }
 
 export interface PinnedMessageResponse extends MessageResponse {
@@ -145,6 +149,8 @@ export interface MessageCreatedEvent {
     reply_to_message_id?: string
     forwarded_from_sender_id?: string
     kind?: 'text' | 'service'
+    service_action?: string
+    service_target_message_id?: string
   }
 }
 

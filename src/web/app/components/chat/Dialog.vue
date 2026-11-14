@@ -222,6 +222,18 @@ function onPinScope(scope: PinScope) {
   if (pinFlow.value) applyPin(pinFlow.value.mode, pinFlow.value.message, scope)
 }
 
+function serviceText(message: Message) {
+  if (message.serviceAction !== 'message_pinned') return message.body
+  const target = message.serviceTargetId ? messageById.value.get(message.serviceTargetId) : null
+  const snippet = target && !target.isDeleted ? ` «${previewText(target)}»` : ''
+  if (message.senderId === props.meId) return `Вы закрепили сообщение${snippet}`
+  return `${authorLabel(message.senderId)} закрепляет сообщение${snippet}`
+}
+
+function onServiceClick(message: Message) {
+  if (message.serviceTargetId) jumpTo({ ...message, id: message.serviceTargetId })
+}
+
 function onForwarded(chatId: string) {
   forwarding.value = null
   clearSelection()
@@ -648,30 +660,46 @@ watch(
           <span class="dialog__date-label">{{ group.date }}</span>
         </div>
 
-        <ChatMessage
-          v-for="message in group.items"
-          :key="message.id"
-          :message="message"
-          :own="message.senderId === meId"
-          :initials="senderInitials(message.senderId)"
-          :avatar-url="senderAvatar(message.senderId)"
-          :author-name="isGroup ? senderName(message.senderId) : undefined"
-          :read="chatStore.isMessageRead(message)"
-          :hide-status="chat.isSaved"
-          :highlighted="highlightedId === message.id"
-          :quote="quoteFor(message)"
-          :forwarded-from="forwardedName(message)"
-          :can-reply="!isNotifications"
-          :selecting="selecting"
-          :selected="selectedIds.has(message.id)"
-          @toggle-select="toggleSelect(message)"
-          @open-avatar="openSenderAvatar(message.senderId)"
-          @edit="startEdit(message)"
-          @remove="onRemove(message)"
-          @reply="startReply(message)"
-          @jump-reply="jumpToReply(message)"
-          @menu="(x, y) => openMessageMenu(message, x, y)"
-        />
+        <template v-for="message in group.items" :key="message.id">
+          <div v-if="message.isService" class="dialog__service" :data-message-id="message.id">
+            <button
+              type="button"
+              class="dialog__service-label"
+              :class="{ 'is-highlighted': highlightedId === message.id }"
+              :disabled="!message.serviceTargetId"
+              @click="onServiceClick(message)"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <path d="M9 4h6l-1 6 3 3H7l3-3z" />
+                <path d="M12 13v7" />
+              </svg>
+              <span class="dialog__service-text">{{ serviceText(message) }}</span>
+            </button>
+          </div>
+          <ChatMessage
+            v-else
+            :message="message"
+            :own="message.senderId === meId"
+            :initials="senderInitials(message.senderId)"
+            :avatar-url="senderAvatar(message.senderId)"
+            :author-name="isGroup ? senderName(message.senderId) : undefined"
+            :read="chatStore.isMessageRead(message)"
+            :hide-status="chat.isSaved"
+            :highlighted="highlightedId === message.id"
+            :quote="quoteFor(message)"
+            :forwarded-from="forwardedName(message)"
+            :can-reply="!isNotifications"
+            :selecting="selecting"
+            :selected="selectedIds.has(message.id)"
+            @toggle-select="toggleSelect(message)"
+            @open-avatar="openSenderAvatar(message.senderId)"
+            @edit="startEdit(message)"
+            @remove="onRemove(message)"
+            @reply="startReply(message)"
+            @jump-reply="jumpToReply(message)"
+            @menu="(x, y) => openMessageMenu(message, x, y)"
+          />
+        </template>
       </div>
 
       <p v-if="loadError" class="dialog__no-messages is-error">{{ loadError }}</p>
@@ -989,6 +1017,55 @@ watch(
   text-transform: uppercase;
   letter-spacing: 0.12em;
   color: var(--color-text-muted);
+}
+
+.dialog__service {
+  display: flex;
+  justify-content: center;
+  margin: 4px 0;
+}
+
+.dialog__service-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: min(520px, 90%);
+  padding: 5px 14px;
+  background: var(--color-lift);
+  border: 1px solid var(--chat-line);
+  border-radius: 999px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition:
+    background 0.6s ease,
+    border-color 0.15s ease;
+}
+
+.dialog__service-label:hover:not(:disabled) {
+  border-color: var(--chat-accent-soft);
+}
+
+.dialog__service-label:disabled {
+  cursor: default;
+}
+
+.dialog__service-label.is-highlighted {
+  background: rgba(79, 216, 255, 0.12);
+}
+
+.dialog__service-label svg {
+  width: 12px;
+  height: 12px;
+  flex: none;
+  color: var(--color-accent);
+}
+
+.dialog__service-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .dialog__no-messages {
