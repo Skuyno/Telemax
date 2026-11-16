@@ -9,6 +9,7 @@ from app.config import settings
 from app.events import nats_client
 from app.health.router import router as health_router
 from app.internal.router import router as internal_router
+from app.pins.router import router as pins_router
 from app.settings.router import router as settings_router
 
 
@@ -25,4 +26,5 @@ app = FastAPI(lifespan=lifespan)
 app.include_router(chats_router)
 app.include_router(health_router)
 app.include_router(internal_router)
+app.include_router(pins_router)
 app.include_router(settings_router)

@@ -29,6 +29,8 @@ class Settings(BaseSettings):
     postgres_port: int = 5432
     identity_url: str = "http://identity:8000"
     file_orchestrator_url: str = "http://file-orchestrator:8000"
+    seaweedfs_filer_url: str = "http://seaweedfs:8888"
+    max_avatar_size_bytes: int = 5_242_880
     nats_port: int = 4222
     # Off by default — logs raw SQL with bound parameter values (message
     # bodies included). Opt in locally via .env when debugging queries.

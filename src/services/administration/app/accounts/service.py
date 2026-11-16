@@ -227,6 +227,55 @@ async def admin_reset_password(
     return AccountResponse.model_validate(response.json())
 
 
+async def change_role(
+    caller_id: UUID, target_id: UUID, new_role: str
+) -> AccountResponse:
+    """Change a target account's role.
+
+    Unlike delete/block/reset-password, this doesn't reuse the generic
+    "caller's role can manage target's role" membership check alone —
+    promoting/demoting is more sensitive than those, so only a superuser
+    may call this at all, never an admin (an admin acting on another
+    admin's role, or its own, is nonsensical either way). The
+    MANAGEABLE_ROLES check still runs afterward, so the superuser account
+    itself can never be targeted.
+
+    Raises:
+        HTTPException: 400 if targeting the caller's own account, 403 if
+            the caller isn't a superuser or the target is the superuser,
+            404 if the target doesn't exist.
+    """
+    caller_role = await _require_caller_role(caller_id)
+
+    if caller_role != SUPERUSER:
+        raise HTTPException(
+            status_code=403, detail="Only a superuser can change roles"
+        )
+
+    if target_id == caller_id:
+        raise HTTPException(status_code=400, detail="Cannot change your own role")
+
+    target_role = await _fetch_role(target_id)
+    if target_role is None:
+        raise HTTPException(status_code=404, detail="Account not found")
+
+    if target_role not in MANAGEABLE_ROLES.get(caller_role, set()):
+        raise HTTPException(
+            status_code=403, detail="Cannot change this account's role"
+        )
+
+    async with httpx.AsyncClient() as client:
+        response = await client.post(
+            f"{settings.identity_url}/internal/accounts/{target_id}/role",
+            params={"caller_id": str(caller_id)},
+            json={"role": new_role},
+        )
+    if response.status_code == 404:
+        raise HTTPException(status_code=404, detail="Account not found")
+    response.raise_for_status()
+    return AccountResponse.model_validate(response.json())
+
+
 async def get_broadcast_chat(caller_id: UUID) -> UUID:
     """Ensure the caller's own "Уведомления" chat exists, for attachments.
 

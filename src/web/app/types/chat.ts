@@ -14,6 +14,7 @@ export interface Chat {
   unreadCount: number
   memberCount?: number
   isSaved?: boolean
+  pinnedRank?: number
   lastMessage?: ChatPreview
 }
 
@@ -26,6 +27,17 @@ export interface Message {
   editedAt: string | null
   isDeleted: boolean
   attachmentIds: string[]
+  replyToId?: string | null
+  forwardedFromSenderId?: string | null
+  isService?: boolean
+  serviceAction?: string | null
+  serviceTargetId?: string | null
+}
+
+export type PinScope = 'me' | 'everyone'
+
+export interface PinnedMessage extends Message {
+  pinScope: PinScope
 }
 
 export interface Attachment {
@@ -77,6 +89,8 @@ export interface ChatResponse {
   type: 'direct' | 'group' | 'notifications'
   title: string | null
   unread_count: number
+  is_pinned: boolean
+  avatar_url?: string | null
   last_message: {
     body: string
     sender_id: string
@@ -101,6 +115,15 @@ export interface MessageResponse {
   is_deleted: boolean
   created_at: string
   attachment_file_ids: string[]
+  reply_to_message_id?: string | null
+  forwarded_from_sender_id?: string | null
+  kind?: 'text' | 'service'
+  service_action?: string | null
+  service_target_message_id?: string | null
+}
+
+export interface PinnedMessageResponse extends MessageResponse {
+  pin_scope: PinScope
 }
 
 export interface FileResponse {
@@ -123,6 +146,11 @@ export interface MessageCreatedEvent {
     sender_id: string
     body: string
     created_at: string
+    reply_to_message_id?: string
+    forwarded_from_sender_id?: string
+    kind?: 'text' | 'service'
+    service_action?: string
+    service_target_message_id?: string
   }
 }
 
@@ -176,7 +204,13 @@ export interface ChatSyncRequiredEvent {
   type: 'chat.sync_required'
   data: {
     chat_id: string
-    reason: 'created' | 'updated' | 'members_added' | 'member_removed'
+    reason:
+      | 'created'
+      | 'updated'
+      | 'members_added'
+      | 'member_removed'
+      | 'message_pinned'
+      | 'message_unpinned'
   }
 }
 

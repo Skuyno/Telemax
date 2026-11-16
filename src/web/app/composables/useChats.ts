@@ -6,6 +6,8 @@ import type {
   GroupMember,
   Message,
   MessageResponse,
+  PinnedMessageResponse,
+  PinScope,
   UserSearchResult,
   WsEvent,
 } from '~/types/chat'
@@ -32,7 +34,18 @@ function toMessage(raw: MessageResponse): Message {
     editedAt: raw.edited_at,
     isDeleted: raw.is_deleted,
     attachmentIds: raw.attachment_file_ids ?? [],
+    replyToId: raw.reply_to_message_id ?? null,
+    forwardedFromSenderId: raw.forwarded_from_sender_id ?? null,
+    isService: raw.kind === 'service',
+    serviceAction: raw.service_action ?? null,
+    serviceTargetId: raw.service_target_message_id ?? null,
   }
+}
+
+function authorIds(page: MessageResponse[]): string[] {
+  return page.flatMap((raw) =>
+    raw.forwarded_from_sender_id ? [raw.sender_id, raw.forwarded_from_sender_id] : [raw.sender_id],
+  )
 }
 
 function isPageActive(): boolean {
@@ -99,10 +112,15 @@ export function useChats() {
             title,
             initials: toInitials(title),
             peerId: peerIds[index]!,
-            avatarUrl: isGroup || isSaved || isNotifications ? null : (peer?.avatar_url ?? null),
+            avatarUrl: isGroup
+              ? (chat.avatar_url ?? null)
+              : isSaved || isNotifications
+                ? null
+                : (peer?.avatar_url ?? null),
             unreadCount: chat.unread_count,
             memberCount: isGroup ? members[index]!.length : undefined,
             isSaved,
+            pinnedRank: chat.is_pinned ? index : undefined,
             lastMessage: last
               ? {
                   body: last.body,
@@ -126,7 +144,7 @@ export function useChats() {
       query: { limit: PAGE_SIZE },
     })
     chatStore.setMessages(chatId, page.map(toMessage).reverse(), page.length === PAGE_SIZE)
-    ensureProfiles(page.map((raw) => raw.sender_id))
+    ensureProfiles(authorIds(page))
   }
 
   async function loadOlderMessages(chatId: string) {
@@ -139,22 +157,67 @@ export function useChats() {
         query: { limit: PAGE_SIZE, before_msg_id: oldest.id },
       })
       chatStore.prependMessages(chatId, page.map(toMessage).reverse(), page.length === PAGE_SIZE)
-      ensureProfiles(page.map((raw) => raw.sender_id))
+      ensureProfiles(authorIds(page))
     } finally {
       loadingOlder.delete(chatId)
     }
   }
 
-  async function sendMessage(chatId: string, body: string, attachmentIds: string[] = []) {
+  async function sendMessage(
+    chatId: string,
+    body: string,
+    attachmentIds: string[] = [],
+    replyToId: string | null = null,
+  ) {
     const text = body.trim()
     if (!text && !attachmentIds.length) return
 
     const saved = await api<MessageResponse>(`/chats/${chatId}/messages`, {
       method: 'POST',
       // client_msg_id — ключ идемпотентности: повтор запроса не создаст дубль.
-      body: { body: text, client_msg_id: randomId(), attachment_file_ids: attachmentIds },
+      body: {
+        body: text,
+        client_msg_id: randomId(),
+        attachment_file_ids: attachmentIds,
+        reply_to_message_id: replyToId,
+      },
     })
     chatStore.addMessage(toMessage(saved))
+  }
+
+  async function forwardMessages(targetChatId: string, sources: Message[]) {
+    if (!sources.length) return
+    const saved = await api<MessageResponse[]>(`/chats/${targetChatId}/messages/forward`, {
+      method: 'POST',
+      body: {
+        source_chat_id: sources[0]!.chatId,
+        source_message_ids: sources.map((message) => message.id),
+        client_msg_id: randomId(),
+      },
+    })
+    for (const raw of saved) chatStore.addMessage(toMessage(raw))
+    ensureProfiles(authorIds(saved))
+  }
+
+  async function loadPinned(chatId: string) {
+    const pinned = await api<PinnedMessageResponse[]>(`/chats/${chatId}/messages/pinned`)
+    chatStore.setPinnedMessages(
+      chatId,
+      pinned
+        .filter((raw) => !raw.is_deleted)
+        .map((raw) => ({ ...toMessage(raw), pinScope: raw.pin_scope })),
+    )
+    ensureProfiles(authorIds(pinned))
+  }
+
+  async function pinMessage(chatId: string, messageId: string, scope: PinScope) {
+    await api(`/chats/${chatId}/messages/${messageId}/pin`, { method: 'POST', body: { scope } })
+    await loadPinned(chatId)
+  }
+
+  async function unpinMessage(chatId: string, messageId: string, scope: PinScope) {
+    await api(`/chats/${chatId}/messages/${messageId}/pin`, { method: 'DELETE', body: { scope } })
+    await loadPinned(chatId)
   }
 
   async function editMessage(chatId: string, messageId: string, body: string) {
@@ -168,6 +231,17 @@ export function useChats() {
   async function deleteMessage(chatId: string, messageId: string) {
     await api(`/chats/${chatId}/messages/${messageId}`, { method: 'DELETE' })
     chatStore.patchMessage(chatId, messageId, { isDeleted: true, body: '', attachmentIds: [] })
+  }
+
+  async function deleteMessages(chatId: string, messageIds: string[]) {
+    if (!messageIds.length) return
+    await api(`/chats/${chatId}/messages/delete`, {
+      method: 'POST',
+      body: { message_ids: messageIds },
+    })
+    for (const messageId of messageIds) {
+      chatStore.patchMessage(chatId, messageId, { isDeleted: true, body: '', attachmentIds: [] })
+    }
   }
 
   async function searchMessages(chatId: string, query: string): Promise<Message[]> {
@@ -334,6 +408,30 @@ export function useChats() {
     chatStore.patchChat(chatId, { title: next, initials: toInitials(next) })
   }
 
+  async function uploadGroupAvatar(chatId: string, file: File) {
+    await api(`/chats/${chatId}/avatar`, {
+      method: 'PUT',
+      body: file,
+      headers: { 'Content-Type': file.type },
+    })
+    await loadChats()
+  }
+
+  async function removeGroupAvatar(chatId: string) {
+    await api(`/chats/${chatId}/avatar`, { method: 'DELETE' })
+    await loadChats()
+  }
+
+  async function pinChat(chatId: string, pinned: boolean) {
+    chatStore.setPinned(chatId, pinned)
+    try {
+      await api(`/chats/${chatId}/settings`, { method: 'PATCH', body: { is_pinned: pinned } })
+    } catch (e) {
+      chatStore.setPinned(chatId, !pinned)
+      throw e
+    }
+  }
+
   async function openSavedChat() {
     const me = chatStore.meId
     if (!me) return
@@ -390,11 +488,20 @@ export function useChats() {
           editedAt: null,
           isDeleted: false,
           attachmentIds: [],
+          replyToId: data.reply_to_message_id ?? null,
+          forwardedFromSenderId: data.forwarded_from_sender_id ?? null,
+          isService: data.kind === 'service',
+          serviceAction: data.service_action ?? null,
+          serviceTargetId: data.service_target_message_id ?? null,
         })
         if (data.chat_id === chatStore.activeChatId && data.sender_id !== chatStore.meId) {
-          syncAttachments(data.chat_id)
+          syncRecentMessages(data.chat_id)
         }
-        ensureProfiles([data.sender_id])
+        ensureProfiles(
+          data.forwarded_from_sender_id
+            ? [data.sender_id, data.forwarded_from_sender_id]
+            : [data.sender_id],
+        )
 
         // Написал человек, с которым чата ещё нет в списке, — подтягиваем список заново.
         if (!isKnownChat) loadChats()
@@ -438,7 +545,11 @@ export function useChats() {
         break
       // Группа изменилась: сигнал говорит только «перечитай», данных в нём нет.
       case 'chat.sync_required':
-        syncChat(event.data.chat_id)
+        if (event.data.reason === 'message_pinned' || event.data.reason === 'message_unpinned') {
+          loadPinned(event.data.chat_id).catch(() => {})
+        } else {
+          syncChat(event.data.chat_id)
+        }
         break
     }
   }
@@ -449,7 +560,7 @@ export function useChats() {
     if (!chatStore.chats.some((chat) => chat.id === chatId)) chatStore.removeChat(chatId)
   }
 
-  async function syncAttachments(chatId: string) {
+  async function syncRecentMessages(chatId: string) {
     const recent = await api<MessageResponse[]>(`/chats/${chatId}/messages`, {
       query: { limit: 20 },
     }).catch(() => [])
@@ -457,7 +568,14 @@ export function useChats() {
       if (raw.attachment_file_ids?.length) {
         chatStore.patchMessage(chatId, raw.id, { attachmentIds: raw.attachment_file_ids })
       }
+      if (raw.reply_to_message_id) {
+        chatStore.patchMessage(chatId, raw.id, { replyToId: raw.reply_to_message_id })
+      }
+      if (raw.forwarded_from_sender_id) {
+        chatStore.patchMessage(chatId, raw.id, { forwardedFromSenderId: raw.forwarded_from_sender_id })
+      }
     }
+    ensureProfiles(authorIds(recent))
   }
 
   async function markRead(chatId: string, lastMessageId?: string) {
@@ -483,7 +601,10 @@ export function useChats() {
   async function resync() {
     await loadChats()
     const chatId = chatStore.activeChatId
-    if (chatId) await loadMessages(chatId).catch(() => {})
+    if (chatId) {
+      await loadMessages(chatId).catch(() => {})
+      loadPinned(chatId).catch(() => {})
+    }
   }
 
   return {
@@ -491,9 +612,17 @@ export function useChats() {
     loadMessages,
     loadOlderMessages,
     sendMessage,
+    forwardMessages,
+    deleteMessages,
+    loadPinned,
+    pinMessage,
+    unpinMessage,
     searchUsers,
     openChatWith,
     openSavedChat,
+    pinChat,
+    uploadGroupAvatar,
+    removeGroupAvatar,
     createGroupChat,
     loadMembers,
     ensureProfiles,

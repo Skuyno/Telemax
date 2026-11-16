@@ -1,8 +1,10 @@
 """Data access layer for per-chat settings."""
 
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.settings.models import ChatSettings
@@ -60,3 +62,22 @@ async def update_chat_settings(
         setattr(settings, field, value)
     await db.commit()
     return settings
+
+
+async def list_pinned_chat_ids(db: AsyncSession, user_id: UUID) -> dict[UUID, datetime]:
+    """Get the chats this user has pinned, with when each was pinned.
+
+    Args:
+        db: Async database session.
+        user_id: Id of the user.
+
+    Returns:
+        dict[UUID, datetime]: `pinned_at` per pinned chat id.
+    """
+    result = await db.execute(
+        select(ChatSettings.chat_id, ChatSettings.pinned_at).where(
+            ChatSettings.user_id == user_id,
+            ChatSettings.is_pinned.is_(True),
+        )
+    )
+    return dict(result.all())

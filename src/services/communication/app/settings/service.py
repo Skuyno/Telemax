@@ -5,6 +5,7 @@ through `app.chats.repository` rather than a shared table or model, so the
 two modules stay independent.
 """
 
+from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import HTTPException
@@ -98,4 +99,21 @@ async def update_settings(
     await _require_membership(db, chat_id, user_id)
     settings = await _fetch_or_create(db, chat_id, user_id)
     patch = data.model_dump(exclude_unset=True)
+    if "is_pinned" in patch:
+        # Server-owned, not client-settable directly — lets multiple pinned
+        # chats sort most-recently-pinned first (see list_pinned_chat_ids).
+        patch["pinned_at"] = datetime.now(timezone.utc) if patch["is_pinned"] else None
     return await settings_repository.update_chat_settings(db, settings, patch)
+
+
+async def list_pinned_chat_ids(db: AsyncSession, user_id: UUID) -> dict[UUID, datetime]:
+    """Get the chats this user has pinned, with when each was pinned.
+
+    Args:
+        db: Async database session.
+        user_id: Id of the user.
+
+    Returns:
+        dict[UUID, datetime]: `pinned_at` per pinned chat id.
+    """
+    return await settings_repository.list_pinned_chat_ids(db, user_id)

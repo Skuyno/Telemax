@@ -17,6 +17,7 @@ from app.users import repository as users_repository
 from app.users import service as users_service
 from app.users.schemas import (
     AdminResetPasswordRequest,
+    ChangeRoleRequest,
     CreateAccountRequest,
     UsernameAvailableResponse,
     UserResponse,
@@ -161,6 +162,33 @@ async def admin_reset_password(
     account = await users_service.admin_reset_password(
         db, caller_id, account_id, data.new_password
     )
+    return UserResponse.model_validate(account)
+
+
+@router.post("/accounts/{account_id}/role")
+async def change_role(
+    account_id: UUID,
+    data: ChangeRoleRequest,
+    caller_id: UUID = Query(...),
+    db: AsyncSession = Depends(get_async_db),
+) -> UserResponse:
+    """Change an account's role. See app/users/service.py:change_role.
+
+    Args:
+        account_id: Id of the account whose role to change.
+        data: The new role.
+        caller_id: Id of the account requesting the change (checked here
+            for the self-target and superuser invariants).
+        db: Async database session.
+
+    Returns:
+        UserResponse: The account with its updated role.
+
+    Raises:
+        HTTPException: 400 if targeting the caller's own account, 404 if
+            not found, 403 if the target is the superuser.
+    """
+    account = await users_service.change_role(db, caller_id, account_id, data.role)
     return UserResponse.model_validate(account)
 
 

@@ -34,17 +34,23 @@ const (
 // Fields irrelevant to a given subject are left as zero values by
 // json.Unmarshal, not an error.
 type InboundEvent struct {
-	ID                string   `json:"id"`
-	ChatID            string   `json:"chat_id"`
-	SenderID          string   `json:"sender_id"`
-	UserID            string   `json:"user_id"`
-	RecipientIDs      []string `json:"recipient_ids"`
-	Body              string   `json:"body"`
-	CreatedAt         string   `json:"created_at"`
-	EditedAt          string   `json:"edited_at"`
-	LastReadMessageID string   `json:"last_read_message_id"`
-	AttachmentFileIDs []string `json:"attachment_file_ids"`
-	Reason            string   `json:"reason"`
+	ID                     string   `json:"id"`
+	ChatID                 string   `json:"chat_id"`
+	SenderID               string   `json:"sender_id"`
+	UserID                 string   `json:"user_id"`
+	RecipientIDs           []string `json:"recipient_ids"`
+	Body                   string   `json:"body"`
+	CreatedAt              string   `json:"created_at"`
+	EditedAt               string   `json:"edited_at"`
+	LastReadMessageID      string   `json:"last_read_message_id"`
+	AttachmentFileIDs      []string `json:"attachment_file_ids"`
+	Reason                 string   `json:"reason"`
+	Kind                   string   `json:"kind"`
+	ServiceAction          string   `json:"service_action"`
+	ServiceTargetMessageID string   `json:"service_target_message_id"`
+	ForwardedFromMessageID string   `json:"forwarded_from_message_id"`
+	ForwardedFromSenderID  string   `json:"forwarded_from_sender_id"`
+	ReplyToMessageID       string   `json:"reply_to_message_id"`
 
 	FileID        string `json:"file_id"`
 	UploaderID    string `json:"uploader_id"`
@@ -53,13 +59,19 @@ type InboundEvent struct {
 }
 
 type MessageData struct {
-	MessageID         string   `json:"message_id"`
-	ChatID            string   `json:"chat_id"`
-	SenderID          string   `json:"sender_id"`
-	Body              string   `json:"body"`
-	CreatedAt         string   `json:"created_at"`
-	EditedAt          *string  `json:"edited_at,omitempty"`
-	AttachmentFileIDs []string `json:"attachment_file_ids"`
+	MessageID              string   `json:"message_id"`
+	ChatID                 string   `json:"chat_id"`
+	SenderID               string   `json:"sender_id"`
+	Body                   string   `json:"body"`
+	CreatedAt              string   `json:"created_at"`
+	EditedAt               *string  `json:"edited_at,omitempty"`
+	AttachmentFileIDs      []string `json:"attachment_file_ids"`
+	Kind                   string   `json:"kind,omitempty"`
+	ServiceAction          *string  `json:"service_action,omitempty"`
+	ServiceTargetMessageID *string  `json:"service_target_message_id,omitempty"`
+	ForwardedFromMessageID *string  `json:"forwarded_from_message_id,omitempty"`
+	ForwardedFromSenderID  *string  `json:"forwarded_from_sender_id,omitempty"`
+	ReplyToMessageID       *string  `json:"reply_to_message_id,omitempty"`
 }
 
 type MessageDeletedData struct {
@@ -359,15 +371,45 @@ func (h *Hub) broadcastPresence(userID string) {
 func buildOutboundEvent(subject string, event InboundEvent) (OutboundEvent, bool) {
 	switch subject {
 	case subjectMessageCreated:
+		var serviceAction *string
+		if event.ServiceAction != "" {
+			serviceAction = &event.ServiceAction
+		}
+		var serviceTargetMessageID *string
+		if event.ServiceTargetMessageID != "" {
+			serviceTargetMessageID = &event.ServiceTargetMessageID
+		}
+		var forwardedFromMessageID *string
+		if event.ForwardedFromMessageID != "" {
+			forwardedFromMessageID = &event.ForwardedFromMessageID
+		}
+		var forwardedFromSenderID *string
+		if event.ForwardedFromSenderID != "" {
+			forwardedFromSenderID = &event.ForwardedFromSenderID
+		}
+		var replyToMessageID *string
+		if event.ReplyToMessageID != "" {
+			replyToMessageID = &event.ReplyToMessageID
+		}
+		kind := event.Kind
+		if kind == "" {
+			kind = "text"
+		}
 		return OutboundEvent{
 			Type: "message.created",
 			Data: MessageData{
-				MessageID:         event.ID,
-				ChatID:            event.ChatID,
-				SenderID:          event.SenderID,
-				Body:              event.Body,
-				CreatedAt:         event.CreatedAt,
-				AttachmentFileIDs: event.AttachmentFileIDs,
+				MessageID:              event.ID,
+				ChatID:                 event.ChatID,
+				SenderID:               event.SenderID,
+				Body:                   event.Body,
+				CreatedAt:              event.CreatedAt,
+				AttachmentFileIDs:      event.AttachmentFileIDs,
+				Kind:                   kind,
+				ServiceAction:          serviceAction,
+				ServiceTargetMessageID: serviceTargetMessageID,
+				ForwardedFromMessageID: forwardedFromMessageID,
+				ForwardedFromSenderID:  forwardedFromSenderID,
+				ReplyToMessageID:       replyToMessageID,
 			},
 		}, true
 	case subjectMessageUpdated:

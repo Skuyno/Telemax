@@ -4,6 +4,7 @@ const {
   loadChats,
   loadMessages,
   loadOlderMessages,
+  loadPinned,
   sendMessage,
   handleRealtimeEvent,
   resync,
@@ -111,8 +112,10 @@ function onBack() {
   chatStore.setActiveChat(null)
 }
 
-async function send(text: string, attachmentIds: string[]) {
-  if (chatStore.activeChatId) await sendMessage(chatStore.activeChatId, text, attachmentIds)
+async function send(text: string, attachmentIds: string[], replyToId: string | null) {
+  if (chatStore.activeChatId) {
+    await sendMessage(chatStore.activeChatId, text, attachmentIds, replyToId)
+  }
 }
 
 function onLoadOlder() {
@@ -124,6 +127,7 @@ watch(
   async (chatId) => {
     messagesError.value = ''
     if (!chatId) return
+    loadPinned(chatId).catch(() => {})
     try {
       await loadMessages(chatId)
       markRead(chatId)

@@ -1,11 +1,17 @@
 <script setup lang="ts">
 import type { Message, PendingUpload } from '~/types/chat'
 
-const props = defineProps<{ chatId: string; editing: Message | null; busy?: boolean }>()
+const props = defineProps<{
+  chatId: string
+  editing: Message | null
+  replyTo?: { id: string; authorName: string; body: string } | null
+  busy?: boolean
+}>()
 
 const emit = defineEmits<{
   submit: [string, string[]]
   cancelEdit: []
+  cancelReply: []
   typing: []
 }>()
 
@@ -87,6 +93,13 @@ watch(
 )
 
 watch(
+  () => props.replyTo?.id,
+  (id) => {
+    if (id) focus()
+  },
+)
+
+watch(
   () => props.chatId,
   () => reset(),
 )
@@ -146,6 +159,11 @@ function onCancelEdit() {
   draft.value = ''
   emit('cancelEdit')
 }
+
+function onEscape() {
+  if (props.editing) onCancelEdit()
+  else if (props.replyTo) emit('cancelReply')
+}
 </script>
 
 <template>
@@ -160,6 +178,27 @@ function onCancelEdit() {
         <span class="editing__body">{{ editing.body }}</span>
       </span>
       <button type="button" class="chip__remove" aria-label="Отменить" @click="onCancelEdit">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <path d="M18 6 6 18" />
+          <path d="M6 6l12 12" />
+        </svg>
+      </button>
+    </div>
+
+    <div v-else-if="replyTo" class="editing">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+        <path d="M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z" />
+      </svg>
+      <span class="editing__text">
+        <span class="editing__label">Ответ: {{ replyTo.authorName }}</span>
+        <span class="editing__body">{{ replyTo.body }}</span>
+      </span>
+      <button
+        type="button"
+        class="chip__remove"
+        aria-label="Отменить ответ"
+        @click="emit('cancelReply')"
+      >
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
           <path d="M18 6 6 18" />
           <path d="M6 6l12 12" />
@@ -219,7 +258,7 @@ function onCancelEdit() {
         aria-label="Сообщение"
         @input="emit('typing')"
         @keydown.enter="onEnter"
-        @keydown.esc="onCancelEdit"
+        @keydown.esc="onEscape"
       />
 
       <button

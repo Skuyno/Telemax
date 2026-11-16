@@ -11,6 +11,7 @@ const {
   deleteAccount,
   blockAccount,
   unblockAccount,
+  changeRole,
   resetAccountPassword,
 } = useAdmin()
 
@@ -64,6 +65,21 @@ async function onToggleBlock(account: UserResponse) {
     if (index !== -1) accounts.value[index] = updated
   } catch (e) {
     rowError.value = extractApiErrorMessage(e, 'Не удалось изменить статус блокировки')
+  } finally {
+    busyAccountId.value = ''
+  }
+}
+
+async function onChangeRole(account: UserResponse, newRole: Role) {
+  if (newRole === account.role) return
+  busyAccountId.value = account.id
+  rowError.value = ''
+  try {
+    const updated = await changeRole(account.id, newRole)
+    const index = accounts.value.findIndex((item) => item.id === account.id)
+    if (index !== -1) accounts.value[index] = updated
+  } catch (e) {
+    rowError.value = extractApiErrorMessage(e, 'Не удалось изменить роль')
   } finally {
     busyAccountId.value = ''
   }
@@ -344,7 +360,18 @@ onBeforeUnmount(() => clearTimeout(usernameCheckTimer))
           <li v-for="account in manageableAccounts" :key="account.id" class="row">
             <div class="row__ident">
               <span class="row__name">@{{ account.username }}</span>
-              <span class="row__role" :class="`is-${account.role}`">{{ account.role }}</span>
+              <select
+                v-if="canPickRole"
+                class="row__role-select"
+                :class="`is-${account.role}`"
+                :value="account.role"
+                :disabled="busyAccountId === account.id"
+                @change="onChangeRole(account, ($event.target as HTMLSelectElement).value as Role)"
+              >
+                <option value="user">user</option>
+                <option value="admin">admin</option>
+              </select>
+              <span v-else class="row__role" :class="`is-${account.role}`">{{ account.role }}</span>
               <span v-if="account.blocked" class="row__badge">заблокирован</span>
             </div>
 
@@ -970,6 +997,42 @@ onBeforeUnmount(() => clearTimeout(usernameCheckTimer))
 .row__role.is-admin {
   color: var(--color-accent);
   box-shadow: inset 0 0 0 1px rgba(255, 204, 46, 0.4);
+}
+
+.row__role-select {
+  padding: 2px 20px 2px 9px;
+  appearance: none;
+  -webkit-appearance: none;
+  background: none;
+  border: none;
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 1px var(--color-line);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text-dim);
+  cursor: pointer;
+  color-scheme: dark;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%237f97e6' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 4px center;
+  background-size: 12px;
+}
+
+.row__role-select.is-admin {
+  color: var(--color-accent);
+  box-shadow: inset 0 0 0 1px rgba(255, 204, 46, 0.4);
+}
+
+.row__role-select:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.row__role-select option {
+  background: var(--color-lift);
+  color: var(--color-text);
 }
 
 .row__badge {
